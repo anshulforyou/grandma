@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# grandma integrity gate: block commits that fail the test suite.
+root="$(git rev-parse --show-toplevel)"
+if [[ -x "$root/bin/grandma" ]]; then
+  if ! "$root/bin/grandma" test >/tmp/grandma-test.out 2>&1; then
+    echo "✗ grandma test FAILED — commit blocked:" >&2
+    cat /tmp/grandma-test.out >&2
+    exit 1
+  fi
+fi
+exit 0

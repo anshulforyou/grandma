@@ -1,0 +1,4 @@
+# Your scope-jargon guard list. Add each context's distinctive vocabulary here
+# (employer names, product names, internal tools). `grandma test` fails if any of
+# these terms appear in the grandma engine itself — that's how a context leak into
+# code that runs for every context gets caught. One term per line, # for comments.

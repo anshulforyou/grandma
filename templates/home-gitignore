@@ -1,0 +1,7 @@
+# Transient, chat-derived, or large artifacts — never part of reviewable memory
+proposals/
+watches/
+.distill/
+*.zip
+*.har
+.DS_Store

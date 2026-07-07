@@ -1,0 +1,7 @@
+# Scope-specific vocabulary that must live in SCOPE memory, never in the grandma engine.
+# grandma-test greps the engine for each term (case-insensitive) and FAILS if found —
+# this catches the leak class where one context's concept gets baked into code that
+# runs for every context.
+#
+# This engine copy stays generic. Put YOUR contexts' distinctive terms (employers,
+# product names, internal tools) in <GRANDMA_HOME>/denylist.txt — the test reads both.
