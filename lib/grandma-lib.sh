@@ -60,3 +60,13 @@ list_scopes() {
     if grep -lqE '^scope:' "$d"/*.md 2>/dev/null; then echo "$n"; fi
   done
 }
+
+# ---- portability helpers (BSD/macOS vs GNU/Linux) ----
+file_mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0; }
+file_size()  { stat -f %z "$1" 2>/dev/null || stat -c %s "$1" 2>/dev/null || echo 0; }
+epoch_date() { date -r "$1" '+%Y-%m-%d' 2>/dev/null || date -d "@$1" '+%Y-%m-%d' 2>/dev/null || echo "$1"; }
+notify_user() {
+  # title, body — macOS notification, Linux notify-send, else silent
+  osascript -e "display notification \"$2\" with title \"$1\" sound name \"Glass\"" 2>/dev/null \
+    || notify-send "$1" "$2" 2>/dev/null || true
+}

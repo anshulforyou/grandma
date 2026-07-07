@@ -26,6 +26,7 @@
 set -uo pipefail
 ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT="${GRANDMA_HOME:-$HOME/.grandma}"   # the user's private memory home
+source "$ENGINE/lib/grandma-lib.sh"
 WATCHES="$ROOT/watches"
 CLAUDE_PROJECTS="$HOME/.claude/projects"
 DIGEST_CAP="${GRANDMA_WATCH_DIGEST_CAP:-12}"     # max sessions digested per tick (cost bound)
@@ -71,7 +72,7 @@ json.dump({"question": q, "start": int(start), "end": int(end),
 PY
   echo "watch started: $slug"
   echo "  question: $question"
-  echo "  window:   $dur_days days (report due $(date -r "$end" '+%Y-%m-%d'))"
+  echo "  window:   $dur_days days (report due $(epoch_date "$end"))"
   echo "  scope:    ${scope:-all sessions}"
   echo "  data:     analyzed automatically at every grandma launch; report lands in watches/$slug/report.md"
   echo "  note:     when the window ends, the report + notification arrive at your next grandma launch"
@@ -88,7 +89,7 @@ json.dump(d,open('$1','w'),indent=1)" 2>/dev/null; }
 find_transcripts() { # start_epoch scope_filter
   local start="$1" scope="$2" f
   find "$CLAUDE_PROJECTS" -name '*.jsonl' -type f 2>/dev/null | while IFS= read -r f; do
-    local m; m=$(stat -f %m "$f" 2>/dev/null || echo 0)
+    local m; m=$(file_mtime "$f")
     [[ "$m" -lt "$start" ]] && continue
     if [[ -n "$scope" ]]; then
       case "$(basename "$(dirname "$f")")" in *"$scope"*) ;; *) continue ;; esac
@@ -104,7 +105,7 @@ cmd_tick() {
   # function returns, where a `local` would be unbound under set -u.
   LOCK="$WATCHES/.tick.lock"
   if ! mkdir "$LOCK" 2>/dev/null; then
-    local age=$(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || echo 0) ))
+    local age=$(( $(date +%s) - $(file_mtime "$LOCK") ))
     [[ "$age" -lt 7200 ]] && exit 0
     rm -rf "$LOCK"; mkdir "$LOCK" 2>/dev/null || exit 0
   fi
@@ -203,9 +204,9 @@ PY
       [[ "$n" -ge "$DIGEST_CAP" ]] && break
       sid="$(basename "$f" .jsonl)"
       grep -q "^$sid\$" "$dir/data/digests.done" && continue
-      sz=$(stat -f %z "$f" 2>/dev/null || echo 0)
+      sz=$(file_size "$f")
       [[ "$sz" -lt 20000 ]] && continue   # skip no-op / trivial sessions
-      m=$(stat -f %m "$f" 2>/dev/null || echo 0); age=$(( ($(date +%s) - m) / 60 ))
+      m=$(file_mtime "$f"); age=$(( ($(date +%s) - m) / 60 ))
       [[ "$age" -lt "$QUIET_MIN" ]] && continue
       # readable excerpt, bounded
       python3 - "$f" "$sid" >> "$dir/.work/batch.md" <<'PY'
@@ -232,7 +233,7 @@ print(f"\n===== SESSION {sid} =====\n{body}\n")
 PY
       echo "$sid" >> "$dir/.work/batch.ids"
       n=$((n + 1))
-    done < <(while IFS= read -r _p; do printf '%s\t%s\n' "$(stat -f %z "$_p" 2>/dev/null || echo 0)" "$_p"; done < "$dir/.work/transcripts.txt" | sort -rn | cut -f2)
+    done < <(while IFS= read -r _p; do printf '%s\t%s\n' "$(file_size "$_p")" "$_p"; done < "$dir/.work/transcripts.txt" | sort -rn | cut -f2)
 
     if [[ "$n" -gt 0 && -s "$dir/.work/batch.md" ]]; then
       local SYS OUT
@@ -290,7 +291,7 @@ $(cat "$dir/data/digests.md" 2>/dev/null || echo '(no digests collected)')" \
       --append-system-prompt "$RSYS" 2>/dev/null ) > "$dir/report.md" || true
     if [[ -s "$dir/report.md" ]]; then
       set_field "$sj" status '"complete"'
-      osascript -e "display notification \"Report ready: $(basename "$dir")\" with title \"grandma watch\" sound name \"Glass\"" 2>/dev/null || true
+      notify_user "grandma watch" "Report ready: $(basename "$dir")"
     else
       rm -f "$dir/report.md"
     fi
@@ -306,7 +307,7 @@ cmd_list() {
     local sj="$sdir/watch.json"
     printf '%-44s %-9s due %s  %s\n' "$(basename "$sdir")" \
       "$(watch_field "$sj" status)" \
-      "$(date -r "$(watch_field "$sj" end)" '+%Y-%m-%d' 2>/dev/null)" \
+      "$(epoch_date "$(watch_field "$sj" end)")" \
       "\"$(watch_field "$sj" question | cut -c1-50)\""
   done
   [[ "$found" == "0" ]] && echo "no watches. start one: grandma-watch start \"<question>\" --weeks 2"
@@ -322,7 +323,7 @@ cmd_status() {
     [[ -f "$sdir/data/digests.done" ]] && dn=$(wc -l < "$sdir/data/digests.done" | tr -d ' ')
     echo "$(basename "$sdir") [$(watch_field "$sj" status)]"
     echo "  question:  $(watch_field "$sj" question)"
-    echo "  window:    $(date -r "$(watch_field "$sj" start)" '+%Y-%m-%d') -> $(date -r "$(watch_field "$sj" end)" '+%Y-%m-%d')"
+    echo "  window:    $(epoch_date "$(watch_field "$sj" start)") -> $(epoch_date "$(watch_field "$sj" end)")"
     echo "  progress:  $n sessions measured, $dn digested"
     [[ -f "$sdir/report.md" ]] && echo "  report:    $sdir/report.md"
   done
@@ -359,6 +360,11 @@ cmd_finish() {
 # default mechanism is the opportunistic tick fired at every grandma launch, which
 # runs in your terminal's (TCC-granted) context and needs no setup.
 cmd_install_agent() {
+  command -v launchctl >/dev/null 2>&1 || {
+    echo "launchd is macOS-only. On Linux, add a cron entry instead:" >&2
+    echo "  0 20 * * * $ENGINE/lib/grandma-watch.sh tick" >&2
+    exit 1
+  }
   echo "NOTE: this requires Full Disk Access for /bin/bash (System Settings > Privacy &" >&2
   echo "Security > Full Disk Access), or launchd cannot read the grandma repo under" >&2
   echo "~/Documents. Without that grant, skip this: watches tick at every grandma launch." >&2
