@@ -27,7 +27,11 @@ you> set up the new billing service
 grandma> Scaffolding with pnpm. I'll open a PR rather than pushing to main.
 ```
 
-That is the whole product. She just remembers.
+That is the whole product. She just remembers. Watch it happen:
+
+<p align="center">
+  <img src="demo/hero.gif" width="830" alt="teach grandma once on Monday, a fresh Thursday session already knows" />
+</p>
 
 ## Install
 
