@@ -62,6 +62,11 @@ cmd_init() {
   [[ -f .gitignore ]]    || { cp "$ENGINE/templates/home-gitignore" .gitignore; echo "  + .gitignore (proposals/, watches/, .distill/ stay local)"; }
   mkdir -p proposals watches .distill
 
+  # commit the seed so the first doctor run is clean (captures show up as diffs later)
+  if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
+    git add -A && git -c user.name="${GIT_AUTHOR_NAME:-grandma}" -c user.email="${GIT_AUTHOR_EMAIL:-grandma@local}" commit -qm "grandma init: seed memory home" || true
+  fi
+
   # PATH + GRANDMA_HOME in the shell rc (idempotent)
   local rc=""
   case "${SHELL:-}" in */zsh) rc="$HOME/.zshrc" ;; */bash) rc="$HOME/.bashrc" ;; esac
