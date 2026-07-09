@@ -166,7 +166,8 @@ for arg in "$@"; do
     --debug-file=*) PASSTHRU+=(--debug-file "${arg#--debug-file=}") ;;
     -*) echo "unknown flag: $arg (forward claude flags after --, e.g. grandma ... -- --debug api)" >&2; exit 2 ;;
     *)
-      if [[ -z "$SCOPE" ]]; then SCOPE="$arg"
+      if [[ -z "$SCOPE" && ${#TASK[@]} -eq 0 && "$arg" != *" "* ]]; then SCOPE="$arg"
+      elif [[ -z "$SCOPE" && "$arg" == *" "* ]]; then TASK+=("$arg")   # quoted task, no scope: picker will ask
       elif [[ -z "$PROJECT" && ${#TASK[@]} -eq 0 && "$arg" != *" "* ]]; then PROJECT="$arg"
       else TASK+=("$arg"); fi ;;
   esac
