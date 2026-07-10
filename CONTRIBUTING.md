@@ -13,7 +13,7 @@ git config core.hooksPath hooks     # the integrity gate becomes your pre-commit
 
 ## The rules that will actually get your PR merged
 
-1. **The engine is scope-agnostic and person-agnostic.** No context-specific
+1. **The engine is sweater-agnostic and person-agnostic.** No context-specific
    vocabulary, no personal names, no hardcoded user paths. Check 12 enforces this,
    and CI runs it. If your feature needs context-specific behavior, it belongs in
    memory files or prompts that read from memory, not in code.

@@ -6,7 +6,7 @@ updated: YYYY-MM-DD
 
 # Preferences — how I work (universal)
 
-> How you want agents to behave regardless of scope. One preference per line.
+> How you want agents to behave regardless of sweater. One preference per line.
 > These are the most reusable, highest-leverage memories — invest here.
 
 ## Communication

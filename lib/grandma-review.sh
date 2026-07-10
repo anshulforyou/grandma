@@ -45,7 +45,7 @@ $("$ASSEMBLE" "$RSCOPE" --full 2>/dev/null || true)
 
 Read the proposal, show it to the user, apply ONLY the edits they approve (respect the
 memory rules: one fact per line, update in place, no LLM artifacts, absolute dates).
-Commit scope/global edits in the grandma repo with a short message. Project CLAUDE.md
+Commit sweater/global edits in the grandma repo with a short message. Project CLAUDE.md
 edits live in that project's own working tree (not committed by grandma git). When done and
 the user confirms, delete the proposal file $FILE. If they reject everything, delete it and stop."
   if [[ "${GRANDMA_DRY_RUN:-0}" == "1" ]]; then

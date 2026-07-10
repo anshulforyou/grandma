@@ -38,7 +38,7 @@ REMINDER="[grandma] The conversation was just compacted, which drops the memory 
 injected at launch. It is restored above. Reminders:
 - Keep following the working preferences and writing style from this memory (including no LLM artifacts).
 - This project's CLAUDE.md (re-read from disk) is authoritative for the task; follow the
-  scope-specific rules in the restored memory above.
+  sweater-specific rules in the restored memory above.
 - Any durable corrections or feedback the user gives should be recorded in the project's
   CLAUDE.md so they persist across future sessions."
 

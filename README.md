@@ -11,7 +11,29 @@
   <img src="https://img.shields.io/badge/telemetry-none-blueviolet" alt="no telemetry">
 </p>
 
-Your AI forgets everything between sessions. Every morning you re-explain your stack, your conventions, your client, your life. Grandma fixes that. She gives Claude Code a persistent, scoped, git-owned memory: who you are, how you work, and what each of your contexts needs. Loaded automatically. Learned passively while you talk. Reviewable as plain markdown with `git diff`.
+Your AI forgets everything between sessions. Every morning you re-explain your stack, your conventions, your client, your life. Grandma fixes that. She gives Claude Code a persistent memory that is **yours** (plain markdown in your own git repo), **separated by sweater** (one per part of your life, kept apart), and **learned passively** while you work.
+
+> **A sweater** is a part of your life you keep memory under: a company, a client, a
+> platform like reddit, an area like job-search. Under a sweater live your projects.
+> Grandma knits each sweater from its own memory, and the threads never cross.
+
+**This is not `/compact`.** Compaction shrinks one conversation. Grandma does three things a single session never can:
+
+- **Keeps your worlds apart.** Client A's memory never leaks into a client B session. Ever. It is a tested guarantee, not a habit.
+- **Remembers across all of them, forever.** Tell her once, in any session; every future session in that sweater knows.
+- **Analyzes your whole history and acts on it.** She can study weeks of your chats and turn what she finds into memory:
+
+```text
+$ grandma "analyse my last 2 weeks of chats, write how I actually write, and make it part of my identity"
+grandma> read 1,297 of your messages across 19 sessions.
+         ✓ wrote global/style.md (3 registers: how you type, how your work should read, how you write prompts)
+         ✓ updated global/identity.md
+         review it: git -C ~/.grandma diff
+```
+
+No other memory tool reads your own history back to you like that.
+
+Here is the everyday loop. Teach her once, and a brand new session already knows:
 
 ```text
 # Monday
@@ -27,7 +49,7 @@ you> set up the new billing service
 grandma> Scaffolding with pnpm. I'll open a PR rather than pushing to main.
 ```
 
-That is the whole product. She just remembers. Watch it happen:
+Watch it happen:
 
 <p align="center">
   <img src="demo/hero.gif" width="830" alt="teach grandma once on Monday, a fresh Thursday session already knows" />
@@ -53,14 +75,14 @@ Three layers of memory, loaded in the right amounts at the right times:
 
 ```text
 global/             who you are, how you like to work        always loaded
-<scope>/            one folder per context: a job, a client, loaded for that scope only
+<sweater>/            one folder per context: a job, a client, loaded for that sweater only
                     a side project, your job hunt
 project CLAUDE.md   deep per-project instructions            auto-loaded in that folder
 ```
 
 - `grandma acme` assembles global + acme memory and launches Claude Code with it.
 - `grandma acme billing-api` also drops you into that project so its CLAUDE.md rides along.
-- `grandma` alone shows a picker, including "describe a new scope" where you explain a new context in plain words and grandma scaffolds it.
+- `grandma` alone shows a picker, including "describe a new sweater" where you explain a new context in plain words and grandma scaffolds it.
 
 Memory lives in `GRANDMA_HOME` (default `~/.grandma`), a git repo that belongs to you. The engine never stores your data next to its own code.
 
@@ -104,7 +126,7 @@ Eight recipes with real transcripts in [docs/use-cases.md](docs/use-cases.md):
 |  | grandma | one big CLAUDE.md | hosted AI memory | vector memory stores |
 |---|---|---|---|---|
 | Your data lives | your disk, your git repo | your repo | their servers | a database |
-| Scope isolation | hard guarantee, tested | one file for everything | opaque | query-dependent |
+| Sweater isolation | hard guarantee, tested | one file for everything | opaque | query-dependent |
 | Review changes | `git diff` | manual | no | no |
 | Learns passively | yes | no | sometimes | app-dependent |
 | Survives compaction | yes, self-heals | partially | n/a | n/a |
@@ -112,21 +134,21 @@ Eight recipes with real transcripts in [docs/use-cases.md](docs/use-cases.md):
 
 ## Trust
 
-- **12 tested invariants** guard the core promise: loading scope X injects exactly global + X and nothing else, the engine contains no scope jargon and no personal data, no secrets in memory, hooks cannot recurse or run away. The suite gates every commit and runs in CI on macOS and Linux.
+- **12 tested invariants** guard the core promise: loading sweater X injects exactly global + X and nothing else, the engine contains no sweater jargon and no personal data, no secrets in memory, hooks cannot recurse or run away. The suite gates every commit and runs in CI on macOS and Linux.
 - **No telemetry, no server, no accounts.** Your memory never leaves your machine.
 - Failure modes are documented, not hidden: [docs/architecture.md](docs/architecture.md) includes the war stories, like the day a hook recursion produced 4,718 files before the circuit breaker existed.
 
 ## Commands
 
 ```text
-grandma                        pick a scope, or describe a new one
-grandma <scope> [project]      launch a remembered session
+grandma                        pick a sweater, or describe a new one
+grandma <sweater> [project]      launch a remembered session
 grandma init | doctor          setup and health checks
-grandma save <scope> [project] distill a finished session into memory
-grandma review [scope]         review what background distills proposed
-grandma ingest [scope]         catalog an existing folder of projects
+grandma save <sweater> [project] distill a finished session into memory
+grandma review [sweater]         review what background distills proposed
+grandma ingest [sweater]         catalog an existing folder of projects
 grandma watch ...              analysis campaigns over your sessions
-grandma test [scope]           verify the integrity invariants
+grandma test [sweater]           verify the integrity invariants
 grandma knit                   coming next: she acts on what she learned (see below)
 ```
 
@@ -134,8 +156,8 @@ grandma knit                   coming next: she acts on what she learned (see be
 
 - **Exit sessions with Ctrl+D**, not `/exit`. Claude Code's `/exit` skips SessionEnd
   hooks (upstream issue), so the end-of-session distill only runs on Ctrl+D. Manual
-  fallback always works: `grandma save <scope>`.
-- Scope names that collide with subcommands (`init`, `save`, `review`, `ingest`,
+  fallback always works: `grandma save <sweater>`.
+- Sweater names that collide with subcommands (`init`, `save`, `review`, `ingest`,
   `watch`, `test`, `doctor`, `help`) are reserved.
 - macOS is the daily-driven platform. Linux is CI-tested but younger: if something
   misbehaves, `grandma doctor` first, then an issue with its output.
@@ -166,8 +188,8 @@ Grandma is being built in three phases, and you are looking at the first two.
 
 - **grandma knit: the execution phase (see above)**
 - Adapters beyond Claude Code (Cursor, Codex CLI, aider)
-- Community scope templates (share your best scope setups)
-- Team scopes (a shared memory repo your whole team loads)
+- Community sweater templates (share your best sweater setups)
+- Team sweaters (a shared memory repo your whole team loads)
 - Memory rollup (old logs compress instead of growing)
 
 ## License

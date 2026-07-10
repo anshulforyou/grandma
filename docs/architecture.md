@@ -11,12 +11,12 @@ engine (this repo, public)          GRANDMA_HOME (yours, private, default ~/.gra
 ├── prompts/*.md  the doctrines     ├── side-project/    ...
 └── templates/    init scaffolding  ├── proposals/       background distill output (gitignored)
                                     ├── watches/         analysis campaigns (gitignored)
-                                    └── denylist.txt     your scope-jargon guard list
+                                    └── denylist.txt     your sweater-jargon guard list
 ```
 
-The engine is scope-agnostic by tested invariant: it may not contain a scope name, a
-scope's vocabulary, a personal name, or a user path. Anything context-specific lives in
-memory files, which load only for their own scope.
+The engine is sweater-agnostic by tested invariant: it may not contain a sweater name, a
+sweater's vocabulary, a personal name, or a user path. Anything context-specific lives in
+memory files, which load only for their own sweater.
 
 ## Launch: what `grandma acme billing` does
 
@@ -43,7 +43,7 @@ Three routes, one definition of "worth remembering" (`prompts/capture.md`):
 - **Exit distill.** SessionEnd triggers a detached, guarded, headless pass that reads
   the transcript and writes a proposal file. It applies nothing. `grandma review`
   is where you accept or discard.
-- **Manual.** `grandma save <scope> [project]` runs the distiller interactively with
+- **Manual.** `grandma save <sweater> [project]` runs the distiller interactively with
   you in the loop.
 
 Every route lands as uncommitted changes in your memory repo. Git is the review queue,
@@ -60,9 +60,9 @@ session does not degrade into an agent that forgot who you are.
 
 `grandma test` verifies twelve invariants. The interesting ones:
 
-1. **Isolation.** Every scope's assembled bundle contains only `global/` and that
-   scope. Nothing else, in any load mode.
-2. **Engine purity.** No scope names in engine logic, no scope vocabulary (checked
+1. **Isolation.** Every sweater's assembled bundle contains only `global/` and that
+   sweater. Nothing else, in any load mode.
+2. **Engine purity.** No sweater names in engine logic, no sweater vocabulary (checked
    against your own `denylist.txt`), no personal names, no user paths.
 3. **No secrets.** Memory holds pointers to where credentials live, never values. The
    suite greps for token patterns on every run.
@@ -76,9 +76,9 @@ The suite runs as a git pre-commit gate on the engine and in CI on macOS and Lin
 Grandma's guards were not designed in advance. Each one is a scar, and knowing them is
 the best argument that the current design holds.
 
-**The context leak.** A scope-specific review convention was once baked into the
-launcher, so every scope heard about another context's workflow. The fix created the
-purity invariants: the engine is scope-agnostic, scope rules live in scope memory, and
+**The context leak.** A sweater-specific review convention was once baked into the
+launcher, so every sweater heard about another context's workflow. The fix created the
+purity invariants: the engine is sweater-agnostic, sweater rules live in sweater memory, and
 a denylist test catches the next attempt. It caught two more leaks the same day it was
 written.
 

@@ -10,7 +10,7 @@
 #     Applies nothing, commits nothing. Used by the SessionEnd hook.
 #
 # Usage:
-#   grandma-save <scope> [project] [--transcript <path>] [--auto]
+#   grandma-save <sweater> [project] [--transcript <path>] [--auto]
 #
 #   <scope>              scope the session belonged to (e.g. acme, writing)
 #   [project]            optional project (single bare word); routes learnings to
@@ -50,7 +50,7 @@ for arg in "$@"; do
 done
 
 if [[ -z "$SCOPE" ]]; then
-  echo "usage: grandma-save <scope> [project] [--transcript <path>] [--auto]" >&2
+  echo "usage: grandma-save <sweater> [project] [--transcript <path>] [--auto]" >&2
   exit 2
 fi
 
@@ -115,8 +115,8 @@ ROUTING="Route each learning to the RIGHT layer:
 - Something about THIS project (a lesson, a gotcha, feedback, a how-to) -> the project's CLAUDE.md at $PROJECT_DIR/CLAUDE.md.
 - Something about how the user works in this whole scope -> $SCOPE_DIR/*.md.
 - Something universal about the user or how they work everywhere -> global/*.md.
-- Follow any scope-specific routing/feedback conventions described in the loaded scope memory."
-[[ -z "$PROJECT_DIR" ]] && ROUTING="Route scope-specific learnings to the scope's files, universal ones to global/*.md."
+- Follow any sweater-specific routing/feedback conventions described in the loaded sweater memory."
+[[ -z "$PROJECT_DIR" ]] && ROUTING="Route sweater-specific learnings to the sweater's files, universal ones to global/*.md."
 
 # ============================ AUTO (headless propose-only) ============================
 if [[ "$AUTO" == "1" ]]; then

@@ -6,7 +6,7 @@ updated: YYYY-MM-DD
 
 # Identity
 
-> Who you are. Always loaded into every session, every scope. Keep it short and
+> Who you are. Always loaded into every session, every sweater. Keep it short and
 > high-signal — this is the lens through which all agents see you.
 
 ## How grandma operates (core principle)
@@ -17,4 +17,4 @@ updated: YYYY-MM-DD
 - Name: <your name>
 - Role: <what you do day to day>
 - Core expertise: <languages, domains, stacks>
-- Working across multiple contexts: <companies, projects, writing — the scopes you'll create>
+- Working across multiple contexts: <companies, projects, writing — the sweaters you'll create>

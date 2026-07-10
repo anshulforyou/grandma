@@ -58,7 +58,7 @@ cmd_init() {
     fi
   done
   [[ -f INDEX.md ]]      || { cp "$ENGINE/templates/INDEX.md" INDEX.md; echo "  + INDEX.md"; }
-  [[ -f denylist.txt ]]  || { cp "$ENGINE/templates/denylist.txt" denylist.txt; echo "  + denylist.txt (your scope-jargon guard list)"; }
+  [[ -f denylist.txt ]]  || { cp "$ENGINE/templates/denylist.txt" denylist.txt; echo "  + denylist.txt (your sweater-jargon guard list)"; }
   [[ -f .gitignore ]]    || { cp "$ENGINE/templates/home-gitignore" .gitignore; echo "  + .gitignore (proposals/, watches/, .distill/ stay local)"; }
   mkdir -p proposals watches .distill
 
@@ -84,19 +84,29 @@ cmd_init() {
   cmd_doctor || true
 
   echo
-  if [[ -t 0 ]] && command -v claude >/dev/null 2>&1; then
-    printf 'Let grandma interview you now to fill in who you are? [Y/n] '
-    local a; read -r a
+  # Find a real terminal even when we were started via `curl ... | bash` (stdin is the
+  # pipe, but /dev/tty is still the user's terminal). This is why the interview must not
+  # gate on [[ -t 0 ]] alone.
+  local TTY=""
+  if [ -t 0 ]; then TTY="/dev/stdin"
+  elif [ -e /dev/tty ] && (: </dev/tty) 2>/dev/null; then TTY="/dev/tty"; fi
+
+  if [ -n "$TTY" ] && command -v claude >/dev/null 2>&1; then
+    printf 'Let grandma interview you now, so she knows who you are? [Y/n] '
+    local a; read -r a <"$TTY"
     if [[ "${a:-y}" =~ ^[Yy]?$ ]]; then
-      local SYS
-      SYS="$(cat "$ENGINE/prompts/init-interview.md")"
+      local SYS; SYS="$(cat "$ENGINE/prompts/init-interview.md")"
       cd "$ROOT"
       exec claude --name "grandma:init" --append-system-prompt "$SYS" \
-        "Interview me per your instructions and fill in global/identity.md and global/preferences.md."
+        "Introduce yourself, explain what a sweater is, interview me, and fill in my identity and preferences per your instructions." <"$TTY"
     fi
+  else
+    echo "  (no interactive terminal detected — run 'grandma' when you're ready and grandma will get you set up)"
   fi
-  echo "Done. Next: grandma            (pick or create a scope)"
-  echo "      grandma <scope>          (start a remembered session)"
+  echo
+  echo "Done. Next:"
+  echo "  grandma              meet grandma, set up your first sweater"
+  echo "  grandma <sweater>    start a session that remembers that part of your life"
 }
 
 case "${1:-init}" in

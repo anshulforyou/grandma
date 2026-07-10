@@ -23,7 +23,7 @@ three hours of correct work that produced no new facts.
    must be followed, a flag that must be set).
 6. preference — the user revealed how they like things done, even offhand.
 7. thread-state — where an ongoing effort stands (what is done, what is pending). This
-   decays, so it goes in the scope's log, not facts.
+   decays, so it goes in the sweater's log, not facts.
 
 ## Never capture (the anti-list)
 - The work product itself (code, drafts, deliverables — they live in the project).
@@ -39,7 +39,7 @@ briefly. When unsure and minor, skip.
 
 ## Routing
 - About the current project only -> that project's own CLAUDE.md.
-- About how the user works across this whole scope -> the scope's files in the grandma repo.
+- About how the user works across this whole sweater -> the sweater's files in the grandma repo.
 - Universal about the user -> global/ (identity, preferences, style).
 
 ## Mechanics of a capture

@@ -6,7 +6,7 @@
 # injected as context. You just declare scope + task; the right memory rides along.
 #
 # Usage:
-#   grandma <scope> [project] [task words...] [--full] [--writing]
+#   grandma <sweater> [project] [task words...] [--full] [--writing]
 #
 # Examples:
 #   grandma acme                       # interactive, scope memory loaded
@@ -54,10 +54,10 @@ grandma_splash() {
 # ---- helpers ----
 source "$ENGINE/lib/grandma-lib.sh"
 
-# Launch the new-scope creator: read a free-text description, hand it to an LLM session
-# that scaffolds the scope, then stops. Execs claude (does not return).
+# Launch the new-sweater creator: read a free-text description, hand it to an LLM session
+# that scaffolds the sweater, then stops. Execs claude (does not return).
 create_new_scope() {
-  printf '\n  Describe the new scope — what it is, what you do there, and any pointers\n  (e.g. "my resume is at ~/docs/cv.pdf, I am job hunting for staff eng roles"):\n  > ' >&2
+  printf '\n  Describe the new sweater — a part of your life to keep memory under\n  (a company, a client, a platform, or an area like job-search).\n  e.g. "my resume is at ~/docs/cv.pdf, I am job hunting for staff eng roles":\n  > ' >&2
   local desc; IFS= read -r desc
   [[ -z "$desc" ]] && { echo "  no description given, aborting." >&2; exit 1; }
   local SYS
@@ -65,24 +65,44 @@ create_new_scope() {
 
 ===== GLOBAL MEMORY (who the user is) =====
 $(cat "$ROOT/global/identity.md" "$ROOT/global/preferences.md" "$ROOT/global/style.md" 2>/dev/null || true)"
-  grandma_splash "new scope"
-  printf '  ⟳ creating a new scope from your description...\n\n' >&2
+  grandma_splash "new sweater"
+  printf '  ⟳ knitting a new sweater from your description...\n\n' >&2
   cd "$ROOT"
-  exec claude --name "grandma:new-scope" ${PASSTHRU[@]+"${PASSTHRU[@]}"} \
+  exec claude --name "grandma:new-sweater" ${PASSTHRU[@]+"${PASSTHRU[@]}"} \
     --append-system-prompt "$SYS" \
-    "Create a new grandma scope from this description, following your instructions: $desc"
+    "Create a new grandma sweater from this description, following your instructions: $desc"
 }
 
-# Interactive scope picker (plain `grandma` with no scope). Sets SCOPE, or execs the
-# new-scope creator, or exits.
+# First run: no sweaters yet. Warmly onboard instead of showing a bare picker.
+first_run_onboard() {
+  printf '\n  Hello, dear. I am grandma. I remember things for you so your AI never forgets.\n' >&2
+  printf '  You keep memory under sweaters: one per part of your life (a job, a client,\n' >&2
+  printf '  a platform like reddit, an area like job-search). Under a sweater live your projects.\n\n' >&2
+  # If they never did the interview, offer it; else go straight to making a sweater.
+  # "interviewed" = identity no longer contains the template placeholder
+  if command -v claude >/dev/null 2>&1 && grep -q '<your name>' "$ROOT/global/identity.md" 2>/dev/null; then
+    printf "  Let's start by getting to know you. (Ctrl+C to skip.)\n\n" >&2
+    local SYS; SYS="$(cat "$ENGINE/prompts/init-interview.md")"
+    grandma_splash "grandma"
+    cd "$ROOT"
+    exec claude --name "grandma:init" ${PASSTHRU[@]+"${PASSTHRU[@]}"} --append-system-prompt "$SYS" \
+      "Introduce yourself, explain what a sweater is, interview me, and set up my identity, preferences, and first sweaters per your instructions."
+  fi
+  printf "  Let's knit your first sweater.\n" >&2
+  create_new_scope   # execs
+}
+
+# Interactive picker (plain `grandma` with no sweater named). Sets SCOPE, execs a
+# creator/onboarder, or exits.
 pick_scope() {
   local scopes=() s choice n idx
   while IFS= read -r s; do [[ -n "$s" ]] && scopes+=("$s"); done < <(list_scopes)
   scopes=(${scopes[@]+"${scopes[@]}"})   # reindex 0-based (bash 3.2 safety)
   n=${#scopes[@]}
-  printf '\n  grandma — which scope?\n' >&2
+  (( n == 0 )) && first_run_onboard   # execs, does not return
+  printf '\n  grandma — which sweater?\n' >&2
   for (( idx=0; idx<n; idx++ )); do printf '   %d) %s\n' "$((idx+1))" "${scopes[idx]}" >&2; done
-  printf '   n) + describe a new scope\n   q) quit\n  > ' >&2
+  printf '   n) + knit a new sweater\n   q) quit\n  > ' >&2
   read -r choice
   case "$choice" in
     q|Q|"") exit 0 ;;
@@ -148,7 +168,7 @@ print(os.path.commonpath(dirs) if dirs else '')
 " 2>/dev/null || true
 }
 
-# ---- parse args: grandma <scope> [project] [task...] [--full] [--writing] ----
+# ---- parse args: grandma <sweater> [project] [task...] [--full] [--writing] ----
 # A single bare word right after the scope (no spaces, before any task words) is the project.
 SCOPE=""
 PROJECT=""
@@ -178,8 +198,8 @@ if [[ -z "$SCOPE" ]]; then
   if [[ -t 0 && "${GRANDMA_DRY_RUN:-0}" != "1" ]]; then
     pick_scope   # sets SCOPE, or execs the new-scope creator, or exits
   else
-    echo "usage: grandma <scope> [project] [task...] [--full] [--writing]" >&2
-    echo "  (run 'grandma' on a terminal with no scope to pick one or create a new scope)" >&2
+    echo "usage: grandma <sweater> [project] [task...] [--full] [--writing]" >&2
+    echo "  (run 'grandma' on a terminal with no sweater to pick one or knit a new one)" >&2
     exit 2
   fi
 fi
@@ -245,7 +265,7 @@ BANNER="memory: $SCOPE loaded · $FILE_COUNT files · ~${TOKENS} tokens"
 [[ -n "$LAUNCH_DIR" ]] && BANNER="$BANNER · project $RP_NAME"
 
 CONFIRM="Before anything else, print exactly one short confirmation line in this shape, filling the hint from the loaded identity/facts (e.g. role + current focus):
-  ▣ $BANNER — <3-6 word who-I-am-in-this-scope hint>
+  ▣ $BANNER — <3-6 word who-I-am-in-this-sweater hint>
 Then"
 if [[ -n "$LAUNCH_DIR" ]]; then
   CONFIRM="$CONFIRM note that you are in project '$RP_NAME' and its CLAUDE.md is loaded from this folder. Then"

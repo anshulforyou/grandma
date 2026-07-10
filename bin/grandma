@@ -2,20 +2,23 @@
 #
 # grandma — the terminal that remembers you.
 #
+# A sweater is a part of your life you keep memory under: a company, a client, a
+# platform like reddit, an area like job-search. Under a sweater live your projects.
+#
 # Usage:
-#   grandma                          pick a scope (or describe a new one)
-#   grandma <scope> [project] [task] launch a session with that scope's memory
-#   grandma init                     first-run setup (memory home, PATH, doctor)
-#   grandma save <scope> [project]   distill a finished session into memory
-#   grandma review [scope]           review auto-distill proposals
-#   grandma ingest [scope] [--root]  catalog a folder of projects into a scope
-#   grandma watch <start|status|...> analysis campaigns over your sessions
-#   grandma test [scope]             verify the context-integrity invariants
-#   grandma doctor                   check dependencies and memory-home health
-#   grandma help                     this text
+#   grandma                            meet grandma / pick a sweater / knit a new one
+#   grandma <sweater> [project] [task] launch a session with that sweater's memory
+#   grandma init                       first-run setup (memory home, PATH, interview)
+#   grandma save <sweater> [project]   distill a finished session into memory
+#   grandma review [sweater]           review auto-distill proposals
+#   grandma ingest [sweater] [--root]  catalog a folder of projects into a sweater
+#   grandma watch <start|status|...>   analysis campaigns over your sessions
+#   grandma test [sweater]             verify the context-integrity invariants
+#   grandma doctor                     check dependencies and memory-home health
+#   grandma help                       this text
 #
 # Memory lives in GRANDMA_HOME (default ~/.grandma) — your files, your git repo,
-# never this engine's. Scope names that collide with subcommands above are reserved.
+# never this engine's. Sweater names that collide with subcommands above are reserved.
 
 set -uo pipefail
 ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -28,6 +31,6 @@ case "$sub" in
   ingest)       shift; exec "$ENGINE/lib/grandma-ingest.sh" "$@" ;;
   watch)        shift; exec "$ENGINE/lib/grandma-watch.sh" "$@" ;;
   test)         shift; exec "$ENGINE/lib/grandma-test.sh" "$@" ;;
-  help|-h|--help) sed -n '3,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  help|-h|--help) sed -n '3,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *)            exec "$ENGINE/lib/grandma-launch.sh" "$@" ;;
 esac

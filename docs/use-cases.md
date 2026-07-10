@@ -32,7 +32,7 @@ you> stop. we never use yarn here. pnpm. this is the second time.
 grandma> ✓ noted (correction) -> acme/facts.md: pnpm only, yarn is banned
 ```
 
-Corrections route to memory that loads on every session in that scope. Project-level
+Corrections route to memory that loads on every session in that sweater. Project-level
 lessons go into that project's own CLAUDE.md, so "never do X again" actually means
 never.
 
@@ -49,8 +49,8 @@ $ grandma client-b        # and vice versa
 ```
 
 This is not a convention, it is an enforced invariant: `grandma test` verifies that
-every scope's bundle contains only global plus that scope, and the check gates every
-commit to the engine. Scope isolation is the reason grandma exists.
+every sweater's bundle contains only global plus that sweater, and the check gates every
+commit to the engine. Sweater isolation is the reason grandma exists.
 
 ---
 
@@ -62,13 +62,13 @@ $ grandma acme new-billing-service
 ```
 
 Grandma interviews you (or reads the folder you point her at), writes the project's
-CLAUDE.md, registers it in the scope's catalog, and stops. From then on:
+CLAUDE.md, registers it in the sweater's catalog, and stops. From then on:
 
 ```text
 $ grandma acme billing    # fuzzy match works
 ```
 
-drops you into the project folder with global memory, scope memory, and the project
+drops you into the project folder with global memory, sweater memory, and the project
 playbook all loaded.
 
 ---
@@ -127,24 +127,24 @@ author had already fixed by hand. It reads receipts, not vibes.
 
 ```text
 $ grandma
-  grandma — which scope?
+  grandma — which sweater?
    1) acme
    2) side-project
-   n) + describe a new scope
+   n) + describe a new sweater
   > n
-  Describe the new scope
+  Describe the new sweater
   > my resume is at ~/docs/cv.pdf and I am hunting for staff engineering roles
 
-  Scope 'job-search' created. Run grandma job-search to start.
+  Sweater 'job-search' created. Run grandma job-search to start.
 ```
 
 Job hunt, house move, tax season, wedding planning. Anything you context-switch into
-repeatedly deserves a scope. The resume stays where it is. Grandma stores the pointer,
+repeatedly deserves a sweater. The resume stays where it is. Grandma stores the pointer,
 never the file.
 
 ---
 
 ## The habit in one line
 
-Start every piece of work with `grandma <scope>` instead of `claude`, and correct her
+Start every piece of work with `grandma <sweater>` instead of `claude`, and correct her
 freely when she is wrong. Everything else is automatic.
