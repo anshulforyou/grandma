@@ -84,29 +84,32 @@ cmd_init() {
   cmd_doctor || true
 
   echo
-  # Find a real terminal even when we were started via `curl ... | bash` (stdin is the
-  # pipe, but /dev/tty is still the user's terminal). This is why the interview must not
-  # gate on [[ -t 0 ]] alone.
-  local TTY=""
-  if [ -t 0 ]; then TTY="/dev/stdin"
-  elif [ -e /dev/tty ] && (: </dev/tty) 2>/dev/null; then TTY="/dev/tty"; fi
-
-  if [ -n "$TTY" ] && command -v claude >/dev/null 2>&1; then
+  # Only run the interview when stdin is a REAL terminal. Under `curl ... | bash` stdin
+  # is a pipe; Claude Code's TUI needs an interactive stdin, and feeding it a redirected
+  # /dev/tty renders the UI but never delivers keystrokes — it hangs on the trust prompt.
+  # So in the piped case we finish setup and hand off: the interview runs on the first
+  # real `grandma`, where stdin is a genuine terminal (grandma-launch first_run_onboard).
+  if [ -t 0 ] && command -v claude >/dev/null 2>&1; then
     printf 'Let grandma interview you now, so she knows who you are? [Y/n] '
-    local a; read -r a <"$TTY"
+    local a; read -r a
     if [[ "${a:-y}" =~ ^[Yy]?$ ]]; then
       local SYS; SYS="$(cat "$ENGINE/prompts/init-interview.md")"
       cd "$ROOT"
       exec claude --name "grandma:init" --append-system-prompt "$SYS" \
-        "Introduce yourself, explain what a sweater is, interview me, and fill in my identity and preferences per your instructions." <"$TTY"
+        "Introduce yourself, explain what a sweater is, interview me, and fill in my identity and preferences per your instructions."
     fi
-  else
-    echo "  (no interactive terminal detected — run 'grandma' when you're ready and grandma will get you set up)"
   fi
+
   echo
-  echo "Done. Next:"
-  echo "  grandma              meet grandma, set up your first sweater"
-  echo "  grandma <sweater>    start a session that remembers that part of your life"
+  echo "grandma is set up. One more step, then she gets to know you:"
+  echo
+  case ":$PATH:" in
+    *":$ENGINE/bin:"*) : ;;                                   # already live in this shell
+    *) [[ -n "$rc" ]] && echo "  source $rc      # or just open a new terminal" \
+                      || echo "  export PATH=\"$ENGINE/bin:\$PATH\"   # add to your shell rc to make it stick" ;;
+  esac
+  echo "  grandma            grandma introduces herself, interviews you, and knits your first sweater"
+  echo "  grandma <sweater>  later: start a session that remembers that part of your life"
 }
 
 case "${1:-init}" in
