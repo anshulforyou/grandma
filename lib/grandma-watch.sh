@@ -367,6 +367,7 @@ cmd_install_agent() {
   }
   echo "NOTE: this requires Full Disk Access for /bin/bash (System Settings > Privacy &" >&2
   echo "Security > Full Disk Access), or launchd cannot read the grandma repo under" >&2
+  # shellcheck disable=SC2088  # literal "~/Documents" is intentional advice text, not a path to expand
   echo "~/Documents. Without that grant, skip this: watches tick at every grandma launch." >&2
   local plist="$HOME/Library/LaunchAgents/com.grandma.watch.plist"
   cat > "$plist" <<EOF

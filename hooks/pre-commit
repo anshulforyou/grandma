@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# grandma integrity gate: block commits that fail the test suite.
+# grandma integrity gate: block commits that fail the full test suite (structural
+# invariants + cold install + onboarding + per-command behavioral tests).
 root="$(git rev-parse --show-toplevel)"
-if [[ -x "$root/bin/grandma" ]]; then
-  if ! "$root/bin/grandma" test >/tmp/grandma-test.out 2>&1; then
-    echo "✗ grandma test FAILED — commit blocked:" >&2
+if [[ -x "$root/test/run.sh" ]]; then
+  if ! "$root/test/run.sh" >/tmp/grandma-test.out 2>&1; then
+    echo "✗ grandma test suite FAILED — commit blocked:" >&2
     cat /tmp/grandma-test.out >&2
     exit 1
   fi
+elif [[ -x "$root/bin/grandma" ]]; then
+  "$root/bin/grandma" test >/tmp/grandma-test.out 2>&1 || { cat /tmp/grandma-test.out >&2; exit 1; }
 fi
 exit 0

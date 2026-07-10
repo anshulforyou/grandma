@@ -32,6 +32,7 @@ project_entries() {
 
 # Fuzzy-resolve a project name against a scope dir's registry.
 # Sets RP_STATUS (OK|AMBIG|NONE), RP_NAME, RP_DIR, RP_CANDS.
+# shellcheck disable=SC2034  # RP_STATUS/RP_NAME/RP_DIR/RP_CANDS are outputs read by callers
 resolve_project() {
   local reg="$1/projects.md" q raw dir nraw matches=0
   q="$(norm "$2")"

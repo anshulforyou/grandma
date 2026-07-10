@@ -11,7 +11,6 @@
 
 set -euo pipefail
 ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ROOT="${GRANDMA_HOME:-$HOME/.grandma}"   # the user's private memory home
 
 scope="${1:-}"; project="${2:-}"
 [[ -z "$scope" ]] && exit 0

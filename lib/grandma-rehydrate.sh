@@ -16,8 +16,7 @@
 set -euo pipefail
 
 ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ROOT="${GRANDMA_HOME:-$HOME/.grandma}"   # the user's private memory home
-ASSEMBLE="$ENGINE/lib/assemble.sh"
+ASSEMBLE="$ENGINE/lib/assemble.sh"   # reads GRANDMA_HOME itself; no ROOT needed here
 
 RAW=0
 SCOPE=""

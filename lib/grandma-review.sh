@@ -36,8 +36,18 @@ mkdir -p "$PROP"
 if [[ "$MODE" == "apply" ]]; then
   [[ -f "$FILE" ]] || FILE="$PROP/$FILE"
   [[ -f "$FILE" ]] || { echo "error: proposal not found: $FILE" >&2; exit 1; }
-  # Scope is the leading token of the filename (scope[-project]-<transcript>.md).
-  RSCOPE="$(basename "$FILE" | cut -d- -f1)"
+  # Scope is the leading portion of the filename (scope[-project]-<transcript>.md). Scope
+  # names are kebab-case, so we cannot cut on the first '-' (that turns 'home-ops' into
+  # 'home'). Pick the LONGEST leading dash-joined prefix that resolves to a real scope dir.
+  RSCOPE=""
+  _base="$(basename "$FILE" .md)"
+  IFS='-' read -ra _toks <<< "$_base"
+  _pfx=""
+  for _t in ${_toks[@]+"${_toks[@]}"}; do
+    _pfx="${_pfx:+$_pfx-}$_t"
+    resolve_scope_dir "$_pfx" >/dev/null 2>&1 && RSCOPE="$_pfx"
+  done
+  [[ -n "$RSCOPE" ]] || RSCOPE="${_toks[0]}"
   SYS="You are applying a pre-computed grandma memory proposal. The proposal file is at
 $FILE and lists target files, actions, and exact text. Current memory:
 
@@ -49,7 +59,7 @@ Commit sweater/global edits in the grandma repo with a short message. Project CL
 edits live in that project's own working tree (not committed by grandma git). When done and
 the user confirms, delete the proposal file $FILE. If they reject everything, delete it and stop."
   if [[ "${GRANDMA_DRY_RUN:-0}" == "1" ]]; then
-    echo "would apply: $FILE (scope=$local_scope)" >&2; exit 0
+    echo "would apply: $FILE (scope=$RSCOPE)" >&2; exit 0
   fi
   cd "$ROOT"
   exec claude --name "grandma:review" --append-system-prompt "$SYS" \

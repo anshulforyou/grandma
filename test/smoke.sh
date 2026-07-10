@@ -3,7 +3,7 @@
 # No claude CLI required (dry-runs only) so it runs in CI.
 set -euo pipefail
 ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export GRANDMA_HOME="$(mktemp -d)/home"
+GRANDMA_HOME="$(mktemp -d)/home"; export GRANDMA_HOME
 export SHELL=""   # never touch a real shell rc during tests
 
 "$ENGINE/bin/grandma" init </dev/null >/dev/null

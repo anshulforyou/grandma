@@ -20,7 +20,6 @@
 
 set -euo pipefail
 
-ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT="${GRANDMA_HOME:-$HOME/.grandma}"   # the user's private memory home
 
 # ---- args ----
@@ -85,9 +84,15 @@ fi
 if [[ "$FULL" -eq 1 ]]; then
   add "$SCOPE_DIR/decisions.md"
   add "$SCOPE_DIR/log/_rollup.md"
-  # latest dated log (YYYY-MM-DD sorts lexically)
+  # latest dated log (YYYY-MM-DD sorts lexically; the glob expands in sorted order, so the
+  # last non-rollup entry is the newest). No `ls | grep` — safe with odd filenames.
   if [[ -d "$SCOPE_DIR/log" ]]; then
-    latest_log="$(ls -1 "$SCOPE_DIR/log"/*.md 2>/dev/null | grep -v '_rollup.md' | sort | tail -n1 || true)"
+    latest_log=""
+    for _lg in "$SCOPE_DIR"/log/*.md; do
+      [[ -e "$_lg" ]] || continue
+      [[ "$(basename "$_lg")" == "_rollup.md" ]] && continue
+      latest_log="$_lg"
+    done
     add "$latest_log"
   fi
 fi

@@ -47,7 +47,7 @@ cmd_doctor() {
 cmd_init() {
   echo "grandma init — setting up your memory home at $ROOT"
   mkdir -p "$ROOT/global"
-  cd "$ROOT"
+  cd "$ROOT" || exit 1
   [[ -d .git ]] || { git init -q; echo "  + git repo (memory history, your review queue)"; }
 
   # seed templates without overwriting anything that exists
@@ -94,7 +94,7 @@ cmd_init() {
     local a; read -r a
     if [[ "${a:-y}" =~ ^[Yy]?$ ]]; then
       local SYS; SYS="$(cat "$ENGINE/prompts/init-interview.md")"
-      cd "$ROOT"
+      cd "$ROOT" || exit 1
       exec claude --name "grandma:init" --append-system-prompt "$SYS" \
         "Introduce yourself, explain what a sweater is, interview me, and fill in my identity and preferences per your instructions."
     fi

@@ -14,16 +14,12 @@ jobs:
       - name: ensure deps
         run: command -v jq >/dev/null || (sudo apt-get update && sudo apt-get install -y jq)
         if: runner.os == 'Linux'
-      - name: integrity suite (engine, no home)
-        run: ./bin/grandma test
-      - name: cold-install smoke
-        run: ./test/smoke.sh
-      - name: onboarding e2e (curl | bash flow)
-        run: ./test/onboard.sh
+      - name: full test suite (integrity + smoke + onboarding + per-command behavioral)
+        run: ./test/run.sh
 
   shellcheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y shellcheck
-      - run: shellcheck -S error bin/grandma lib/*.sh install.sh test/*.sh
+      - run: shellcheck -S warning bin/grandma lib/*.sh install.sh test/*.sh test/lib/*.sh

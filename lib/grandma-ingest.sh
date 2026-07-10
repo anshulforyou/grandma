@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-GRANDMA_ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT="${GRANDMA_HOME:-$HOME/.grandma}"   # the user's private memory home
 INGEST_PROMPT="$ENGINE/prompts/ingest.md"
 ASSEMBLE="$ENGINE/lib/assemble.sh"
@@ -55,14 +55,14 @@ fi
 
 # ---- resolve grandma scope dir (case-insensitive), or mark as new ----
 SCOPE_DIR=""
-for d in "$GRANDMA_ROOT"/*/; do
+for d in "$ROOT"/*/; do
   name="$(basename "$d")"; [[ "$name" == "global" ]] && continue
   if [[ "$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')" == "$(printf '%s' "$SCOPE" | tr '[:upper:]' '[:lower:]')" ]]; then
     SCOPE_DIR="${d%/}"; break
   fi
 done
 NEW_SCOPE=0
-if [[ -z "$SCOPE_DIR" ]]; then SCOPE_DIR="$GRANDMA_ROOT/$SCOPE"; NEW_SCOPE=1; fi
+if [[ -z "$SCOPE_DIR" ]]; then SCOPE_DIR="$ROOT/$SCOPE"; NEW_SCOPE=1; fi
 
 # ---- build the project list block for the prompt ----
 LIST=""
@@ -77,7 +77,7 @@ if [[ "${GRANDMA_DRY_RUN:-0}" == "1" ]]; then
     echo "scope dir:   $SCOPE_DIR"
     echo "found ${#ENTRIES[@]} project CLAUDE.md files:"
     printf '%s' "$LIST" | sed 's/^/  /'
-    echo "would launch: (cd $GRANDMA_ROOT && claude --name ingest:$SCOPE --add-dir $SCAN_ROOT --append-system-prompt <ingest+memory> \"<init>\")"
+    echo "would launch: (cd $ROOT && claude --name ingest:$SCOPE --add-dir $SCAN_ROOT --append-system-prompt <ingest+memory> \"<init>\")"
   } >&2
   exit 0
 fi
@@ -95,5 +95,5 @@ Write/update the catalog at $(basename "$SCOPE_DIR")/projects.md per your instru
 mkdir -p "$SCOPE_DIR"
 
 # Launch the ingest session in the grandma repo, with the scanned folder readable.
-cd "$GRANDMA_ROOT"
+cd "$ROOT"
 exec claude --name "ingest:$SCOPE" --add-dir "$SCAN_ROOT" --append-system-prompt "$SYSPROMPT" "$INIT"
