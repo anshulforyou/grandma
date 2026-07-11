@@ -48,8 +48,15 @@ run_capped() { local secs="$1"; shift; perl -e 'alarm shift @ARGV; exec @ARGV or
 run_in_pty() {
   local cmd="$1"
   command -v script >/dev/null 2>&1 || return 2
-  if script --version >/dev/null 2>&1; then run_capped 30 script -qec "$cmd" /dev/null      # GNU
-  else run_capped 30 script -q /dev/null bash -c "$cmd"; fi                                  # BSD/macOS
+  if script --version >/dev/null 2>&1; then
+    # GNU script runs `-c` via $SHELL; tests set SHELL="" (to avoid touching an rc), which
+    # would make it exec an empty shell. Force a real shell just for this call.
+    local sh=/bin/bash
+    [ -n "${SHELL:-}" ] && [ -x "${SHELL:-}" ] && sh="$SHELL"
+    SHELL="$sh" run_capped 30 script -qec "$cmd" /dev/null
+  else
+    run_capped 30 script -q /dev/null bash -c "$cmd"   # BSD/macOS: explicit shell, SHELL-agnostic
+  fi
 }
 
 # make_fake_claude <bindir> [marker] — write a deterministic `claude` shim into <bindir> so
