@@ -147,7 +147,7 @@ grandma review [sweater]         review what background distills proposed
 grandma ingest [sweater]         catalog an existing folder of projects
 grandma watch ...              analysis campaigns over your sessions
 grandma test [sweater]           verify the integrity invariants
-grandma knit                   coming next: she acts on what she learned (see below)
+grandma knit                   coming next: share a project's memory with a teammate (see below)
 ```
 
 ## Known quirks (v0.1)
@@ -169,25 +169,28 @@ Grandma is being built in three phases, and you are looking at the first two.
 2. **Watch** (shipped). She analyzes how you actually work: `grandma watch` measures
    your sessions, reads the substantial ones, and reports the patterns behind your
    long sessions and wasted tokens.
-3. **Knit** (next). The execution phase: she acts on what she learned. You will say
-   things like
+3. **Knit** (next). The sharing phase. Two people work the same project, and each one
+   builds their own memory of it locally: the sharp edges, the decisions, the things
+   that only bite you once. Knit lets you trade those. You run
 
    ```sh
-   grandma knit "based on what you watched, improve my prompt whenever it runs past 500 tokens"
+   grandma knit share <sweater>
    ```
 
-   and from then on grandma intervenes in the moment: rewriting the oversized prompt
-   before it ships, nudging you when a session shows the exact pattern that wasted
-   two hours last week, applying the fix her own report recommended. Watch finds the
-   patterns. Knit weaves the fix into your daily work. Contributions and design ideas
-   for knit are welcome: open an issue with the `knit` label.
+   and your project memory, personal scope stripped out, goes to your teammate. They
+   get a ping, pull it with grandma, and see it laid against their own: a diff between
+   your memory and theirs, so each side keeps what it wants. Think git, but for the
+   context in your heads instead of the code on disk. Remember builds your memory.
+   Watch sharpens it. Knit reconciles yours with a teammate's. It is early and open
+   for design: how the two memories merge when they disagree, what gets shared versus
+   kept private, how a note's origin is tracked. Contributions and design ideas for
+   knit are welcome: open an issue with the `knit` label.
 
 ## Roadmap
 
-- **grandma knit: the execution phase (see above)**
+- **grandma knit: share a project's memory with your team (see above)**
 - Adapters beyond Claude Code (Cursor, Codex CLI, aider)
 - Community sweater templates (share your best sweater setups)
-- Team sweaters (a shared memory repo your whole team loads)
 - Memory rollup (old logs compress instead of growing)
 
 ## License
