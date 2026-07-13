@@ -11,6 +11,12 @@
 set -uo pipefail
 ENGINE_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Hermetic: never inherit a GRANDMA_HOME from the surrounding shell. Every case below
+# expects `grandma init` to seed the sandbox's own $HOME/.grandma. A GRANDMA_HOME exported
+# in a developer's shell (the local-dev setup points it at the real memory home) would
+# otherwise redirect the seed there, writing real memory and failing the sandbox asserts.
+unset GRANDMA_HOME
+
 FAILS=0
 pass() { printf '  \033[32mok\033[0m   %s\n' "$1"; }
 fail() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; FAILS=$((FAILS + 1)); }
