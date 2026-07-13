@@ -162,7 +162,16 @@ one-line why. If nothing is durable, output exactly 'No durable learnings.'"
     ( cd "$ROOT" && GRANDMA_DISTILLING=1 claude -p "$APROMPT" --append-system-prompt "$ASYS" 2>/dev/null ) || echo "(distiller failed)"
   } > "$out"
   rm -f "$readable"
-  echo "$out"
+  # Keep the proposal only if the distiller actually proposed something. A "No durable
+  # learnings" result (the model often adds justification prose, so match the phrase anywhere),
+  # a failed distill, or a header-only file must NOT linger or ping the user for review later.
+  if grep -qiF 'no durable learnings' "$out" \
+     || grep -qF '(distiller failed)' "$out" \
+     || ! grep -qvE '^#|^[[:space:]]*$' "$out"; then
+    rm -f "$out"
+  else
+    echo "$out"
+  fi
   exit 0
 fi
 

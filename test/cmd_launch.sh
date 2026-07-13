@@ -68,5 +68,22 @@ else
   assert_contains "review now?" "offers an immediate review at session end (not left for later)"
 fi
 
+section "launch — offers to review a prior session's proposal (pty)"
+# A window-closed session leaves a pending proposal; the next launch should OFFER to review it.
+cat > "$GRANDMA_HOME/proposals/globex-20260601T090000.md" <<'P'
+# grandma memory proposal
+target: globex/facts.md | action: append | text: prior-session note
+P
+SHIM_O="$(make_fake_claude "$TMP/bin4")"; export SHIM_O GBIN_O="$GBIN" H_O="$GRANDMA_HOME"
+out="$(printf 'n\n' | run_in_pty 'GRANDMA_HOME="$H_O" GRANDMA_NO_SPLASH=1 GRANDMA_NO_AUTOSAVE=1 HOME="'"$TMP"'/fh" PATH="$SHIM_O:$PATH" "$GBIN_O" globex 2>&1')"
+prc=$?
+if [ "$prc" -eq 2 ]; then
+  skip "no usable pty tool — review-on-launch offer not exercised"
+else
+  # shellcheck disable=SC2034  # LAST_OUT is read by assert_* (sourced from lib/assert.sh)
+  LAST_OUT="$out"
+  assert_contains "review before we start?" "offers to review a prior session's notes at launch"
+fi
+
 echo
 if [ "$FAILS" -eq 0 ]; then echo "cmd_launch: PASS"; else echo "cmd_launch: $FAILS FAILURE(S)"; exit 1; fi

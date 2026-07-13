@@ -177,6 +177,7 @@ post_session() {
   [ -t 0 ] || return 0
   [[ "${GRANDMA_NO_AUTOSAVE:-0}" == "1" ]] && return 0
   cd "$ROOT" 2>/dev/null || return 0
+  distilled=1                                    # this session is being handled here; no background pass
 
   printf '\n  🧶 grandma is looking over the session… (Ctrl+C to skip)\n' >&2
   local proposal=""
@@ -214,6 +215,19 @@ post_session() {
     printf '  🧶 left for later — grandma review %s, or git -C %s diff\n\n' "$SCOPE" "$ROOT" >&2
   fi
 }
+
+# background_distill / on_hangup — the ABRUPT-exit path. If the window is closed (SIGHUP) or
+# the process is terminated, bash runs this trap once the foreground `claude` returns. There is
+# no terminal left to review in, so we spawn a DETACHED, non-interactive distill that outlives
+# us (nohup+disown); it lands a proposal, surfaced at the next launch. The `distilled` flag
+# guarantees a session is never distilled twice (post_session sets it on the clean-exit path).
+background_distill() {
+  [ "${distilled:-0}" = 1 ] && return
+  distilled=1
+  nohup "$ENGINE/lib/grandma-save.sh" "$SCOPE" ${RP_NAME:+"$RP_NAME"} --auto >/dev/null 2>&1 &
+  disown 2>/dev/null || true
+}
+on_hangup() { background_distill; exit 129; }
 
 # ---- parse args: grandma <sweater> [project] [task...] [--full] [--writing] ----
 # A single bare word right after the scope (no spaces, before any task words) is the project.
@@ -365,10 +379,21 @@ if [[ -n "$LAUNCH_DIR" ]]; then
     printf '  + installed grandma hooks (%s/.claude/settings.local.json)\n' "$RP_NAME" >&2
 fi
 
-# Notice pending memory proposals for this scope (from auto-distill on prior exits).
+# Pending memory proposals for this scope (e.g. from a session whose window was closed, so
+# it distilled in the background). On a real terminal, OFFER to review them before we start —
+# this is where a window-closed session actually gets reviewed. Non-interactive: passive notice.
 if compgen -G "$ROOT/proposals/${SCOPE}*.md" >/dev/null 2>&1; then
   n="$(ls -1 "$ROOT/proposals/${SCOPE}"*.md 2>/dev/null | wc -l | tr -d ' ')"
-  printf '  📝 %s pending memory proposal(s) for %s — run: grandma-review %s\n' "$n" "$SCOPE" "$SCOPE" >&2
+  if [ -t 0 ]; then
+    printf '  🧶 grandma noted %s thing(s) from a previous session — review before we start? [Y/n] ' "$n" >&2
+    read -r _ans
+    if [[ "${_ans:-y}" =~ ^[Yy]?$ ]]; then
+      "$ENGINE/lib/grandma-review.sh" "$SCOPE" || true
+      printf '\n' >&2
+    fi
+  else
+    printf '  📝 %s pending memory proposal(s) for %s — run: grandma review %s\n' "$n" "$SCOPE" "$SCOPE" >&2
+  fi
 fi
 
 # Notice uncommitted memory changes (in-flight captures land as diffs you review).
@@ -400,7 +425,12 @@ printf '  ⟳ %s\n  ⟳ launching Claude Code — a few seconds; she confirms me
 # distill + offer an immediate review. GRANDMA_DEFER_DISTILL tells the SessionEnd hook to
 # stand down so the same session is not distilled twice.
 export GRANDMA_DEFER_DISTILL=1
+distilled=0
+# Abrupt exit (window closed / terminated): capture the session in the background so it is
+# never lost. Clean exit: disarm, then post_session distills + reviews in the foreground.
+trap on_hangup HUP TERM
 CLAUDE_RC=0
 claude --name "grandma:$SCOPE${RP_NAME:+/$RP_NAME}" --add-dir "$ROOT" ${PASSTHRU[@]+"${PASSTHRU[@]}"} --append-system-prompt "$SYSPROMPT" "$INIT" || CLAUDE_RC=$?
+trap - HUP TERM
 post_session
 exit "$CLAUDE_RC"

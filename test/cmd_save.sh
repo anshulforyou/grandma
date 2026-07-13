@@ -53,6 +53,28 @@ after2="$(ls "$GRANDMA_HOME/proposals/"*.md | wc -l | tr -d ' ')"
 if [ "$after2" -gt "$before2" ]; then ok "with headroom, a proposal IS written ($before2->$after2)"
 else fail "expected a new proposal under a high cap (before=$before2 after=$after2)"; fi
 
+section "save --auto drops a no-op distill (No durable learnings) — no file, no future ping"
+NOOP="$TMP/noop-bin"; mkdir -p "$NOOP"
+cat > "$NOOP/claude" <<'NOOPSHIM'
+#!/usr/bin/env bash
+case "${1:-}" in --version|-v) echo 0.0.0; exit 0 ;; esac
+if [ "${1:-}" = "-p" ]; then
+  echo "No durable learnings."
+  echo
+  echo "Everything discussed was undecided brainstorm, nothing to persist."
+  exit 0
+fi
+exit 0
+NOOPSHIM
+chmod +x "$NOOP/claude"
+TRANS3="$TMP/noop-session.jsonl"; make_fake_transcript "$TRANS3"   # unique name so it can't collide
+before="$(ls "$GRANDMA_HOME/proposals/"*.md 2>/dev/null | wc -l | tr -d ' ')"
+capture env PATH="$NOOP:$PATH" "$GBIN" save globex billing --auto --transcript "$TRANS3"
+assert_rc 0 "save --auto with nothing durable runs"
+after="$(ls "$GRANDMA_HOME/proposals/"*.md 2>/dev/null | wc -l | tr -d ' ')"
+[ "$after" = "$before" ] && ok "a no-op distill leaves no proposal file (won't ping you later)" \
+                         || fail "no-op distill left a proposal ($before -> $after)"
+
 section "save — unknown scope with a project fails cleanly"
 capture env "$GBIN" save no-such-scope billing --transcript "$TRANS"
 assert_rc 1 "save on an unknown scope exits 1 (no unbound crash)"
