@@ -85,6 +85,22 @@ else
   assert_contains "review before we start?" "offers to review a prior session's notes at launch"
 fi
 
+section "launch — accepting the review offer routes to a review session (dry-run plan)"
+# The pty harness cannot drive a specific answer past an interactive read (see note above), so
+# we assert the WIRING via the dry-run plan: with a pending proposal, accepting the offer must
+# exec `grandma review --apply <scope>` (Design A: review, then re-run), NOT list-and-continue.
+# home-ops carries the fixture proposal; the scope must survive kebab intact.
+capture env GRANDMA_DRY_RUN=1 "$GBIN" home-ops
+assert_rc 0 "grandma home-ops (dry-run) runs"
+assert_contains "grandma review --apply home-ops" "accepting the review offer execs an apply session for the full kebab scope"
+assert_contains "1 pending proposal(s)" "the plan reports the pending proposal count"
+
+section "launch — no pending proposals means no review line in the plan"
+rm -f "$GRANDMA_HOME/proposals/globex"*.md   # earlier pty test seeded one; start clean here
+capture env GRANDMA_DRY_RUN=1 "$GBIN" globex
+assert_rc 0 "grandma globex (dry-run, no proposal) runs"
+assert_not_contains "grandma review --apply globex" "no review line when the scope has no pending proposals"
+
 section "launch — unknown sweater offers to knit it, not a cryptic error"
 capture env "$GBIN" persona </dev/null                    # non-tty: friendly, actionable error
 assert_rc 1 "grandma <unknown> exits 1 (no hang/crash)"

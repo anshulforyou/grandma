@@ -34,36 +34,57 @@ mkdir -p "$PROP"
 
 # ---- apply one proposal interactively ----
 if [[ "$MODE" == "apply" ]]; then
-  [[ -f "$FILE" ]] || FILE="$PROP/$FILE"
-  [[ -f "$FILE" ]] || { echo "error: proposal not found: $FILE" >&2; exit 1; }
-  # Scope is the leading portion of the filename (scope[-project]-<transcript>.md). Scope
-  # names are kebab-case, so we cannot cut on the first '-' (that turns 'home-ops' into
-  # 'home'). Pick the LONGEST leading dash-joined prefix that resolves to a real scope dir.
+  # --apply takes EITHER one proposal file OR a scope name. A scope reviews all of that
+  # scope's pending proposals in a single session (this is what `grandma <scope>` execs when
+  # you accept the launch-time review offer). A bare filename is resolved under proposals/.
+  FILES=()
   RSCOPE=""
-  _base="$(basename "$FILE" .md)"
-  IFS='-' read -ra _toks <<< "$_base"
-  _pfx=""
-  for _t in ${_toks[@]+"${_toks[@]}"}; do
-    _pfx="${_pfx:+$_pfx-}$_t"
-    resolve_scope_dir "$_pfx" >/dev/null 2>&1 && RSCOPE="$_pfx"
-  done
-  [[ -n "$RSCOPE" ]] || RSCOPE="${_toks[0]}"
-  SYS="You are applying a pre-computed grandma memory proposal. The proposal file is at
-$FILE and lists target files, actions, and exact text. Current memory:
+  if [[ -f "$FILE" ]]; then
+    FILES=("$FILE")
+  elif [[ -n "$FILE" && -f "$PROP/$FILE" ]]; then
+    FILES=("$PROP/$FILE")
+  elif [[ -n "$FILE" ]] && resolve_scope_dir "$FILE" >/dev/null 2>&1; then
+    shopt -s nullglob
+    FILES=("$PROP/$FILE"*.md)
+    RSCOPE="$FILE"
+  fi
+  [[ ${#FILES[@]} -gt 0 ]] || { echo "error: no proposal to apply for: ${FILE:-<none>}" >&2; exit 1; }
+
+  # Scope drives which memory is loaded for the session. For the single-file path, derive it
+  # from the filename (scope[-project]-<transcript>.md). Scope names are kebab-case, so we
+  # cannot cut on the first '-' (that turns 'home-ops' into 'home'): pick the LONGEST leading
+  # dash-joined prefix that resolves to a real scope dir.
+  if [[ -z "$RSCOPE" ]]; then
+    _base="$(basename "${FILES[0]}" .md)"
+    IFS='-' read -ra _toks <<< "$_base"
+    _pfx=""
+    for _t in ${_toks[@]+"${_toks[@]}"}; do
+      _pfx="${_pfx:+$_pfx-}$_t"
+      resolve_scope_dir "$_pfx" >/dev/null 2>&1 && RSCOPE="$_pfx"
+    done
+    [[ -n "$RSCOPE" ]] || RSCOPE="${_toks[0]}"
+  fi
+
+  _flist="$(printf '  %s\n' "${FILES[@]}")"
+  SYS="You are applying pre-computed grandma memory proposal(s). Each proposal file lists
+target files, actions, and exact text. The pending file(s) for this review:
+$_flist
+Current memory:
 
 $("$ASSEMBLE" "$RSCOPE" --full 2>/dev/null || true)
 
-Read the proposal, show it to the user, apply ONLY the edits they approve (respect the
-memory rules: one fact per line, update in place, no LLM artifacts, absolute dates).
-Commit sweater/global edits in the grandma repo with a short message. Project CLAUDE.md
-edits live in that project's own working tree (not committed by grandma git). When done and
-the user confirms, delete the proposal file $FILE. If they reject everything, delete it and stop."
+Work through the proposals ONE AT A TIME. For each: show it to the user, apply ONLY the
+edits they approve (respect the memory rules: one fact per line, update in place, no LLM
+artifacts, absolute dates). Commit sweater/global edits in the grandma repo with a short
+message. Project CLAUDE.md edits live in that project's own working tree (not committed by
+grandma git). Once a proposal is handled (applied or rejected), delete that proposal file.
+When every listed proposal has been handled, stop."
   if [[ "${GRANDMA_DRY_RUN:-0}" == "1" ]]; then
-    echo "would apply: $FILE (scope=$RSCOPE)" >&2; exit 0
+    echo "would apply: ${FILES[*]} (scope=$RSCOPE)" >&2; exit 0
   fi
   cd "$ROOT"
   exec claude --name "grandma:review" --append-system-prompt "$SYS" \
-    "Apply the memory proposal at $FILE. Walk me through it, apply what I approve, commit, then delete the proposal."
+    "Walk me through the pending memory proposal(s), apply what I approve, commit each, then delete each handled proposal."
 fi
 
 # ---- clear ----

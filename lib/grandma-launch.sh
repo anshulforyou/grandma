@@ -385,6 +385,10 @@ if [[ "${GRANDMA_DRY_RUN:-0}" == "1" ]]; then
     fi
   fi
   [[ ${#PASSTHRU[@]} -gt 0 ]] && echo "passthru:     ${PASSTHRU[*]} (forwarded to claude)" >&2
+  if compgen -G "$ROOT/proposals/${SCOPE}*.md" >/dev/null 2>&1; then
+    pn="$(ls -1 "$ROOT/proposals/${SCOPE}"*.md 2>/dev/null | wc -l | tr -d ' ')"
+    echo "review:       $pn pending proposal(s) — accepting the offer execs: grandma review --apply $SCOPE" >&2
+  fi
   echo "capture:      doctrine loaded (prompts/capture.md) · grandma repo writable via --add-dir" >&2
   echo "banner:       $BANNER" >&2
   echo "would launch: (cd ${LAUNCH_DIR:-.} && claude --name grandma:$SCOPE${RP_NAME:+/$RP_NAME} ${PASSTHRU[*]:-} --append-system-prompt <bundle> <init>)" >&2
@@ -411,8 +415,12 @@ if compgen -G "$ROOT/proposals/${SCOPE}*.md" >/dev/null 2>&1; then
     printf '  🧶 grandma noted %s thing(s) from a previous session — review before we start? [Y/n] ' "$n" >&2
     read -r _ans
     if [[ "${_ans:-y}" =~ ^[Yy]?$ ]]; then
-      "$ENGINE/lib/grandma-review.sh" "$SCOPE" || true
-      printf '\n' >&2
+      # Open a real review session over ALL of this scope's pending proposals: you approve,
+      # decline, and apply each, it commits and deletes them. Applying a proposal is an LLM
+      # task (they are free-form prose with caveats), so it needs its own session. We EXEC it
+      # (do not fall through to the work session): review, then re-run grandma to start work.
+      printf '  🧶 opening review — apply what you approve, then re-run: grandma %s\n\n' "$SCOPE" >&2
+      exec "$ENGINE/lib/grandma-review.sh" --apply "$SCOPE"
     fi
   else
     printf '  📝 %s pending memory proposal(s) for %s — run: grandma review %s\n' "$n" "$SCOPE" "$SCOPE" >&2

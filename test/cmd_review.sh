@@ -35,6 +35,23 @@ assert_rc 0 "review --apply dry-run runs under set -u (BUG #2: was \$local_scope
 assert_contains "scope=home-ops" "resolves the FULL kebab scope, not a '-' truncation (BUG #3)"
 assert_not_contains "scope=home)" "does not truncate home-ops to home (BUG #3)"
 
+section "review --apply <scope> dry-run (apply ALL of a scope's pending proposals in one session)"
+# Launch execs this when you accept the review-before-we-start offer. A second proposal proves
+# it gathers every pending file for the scope, not just one.
+PROP2="$GRANDMA_HOME/proposals/home-ops-20260601T202020.md"
+cp "$PROP" "$PROP2"
+capture env GRANDMA_DRY_RUN=1 "$GBIN" review --apply home-ops
+assert_rc 0 "review --apply <scope> dry-run runs under set -u"
+assert_contains "scope=home-ops" "resolves the FULL kebab scope for the scope-level apply"
+assert_contains "home-ops-20260601T101010.md" "gathers the first pending proposal"
+assert_contains "home-ops-20260601T202020.md" "gathers the second pending proposal (all, not one)"
+rm -f "$PROP2"
+
+section "review --apply <unknown> is a clean error, not a set -u crash"
+capture env GRANDMA_DRY_RUN=1 "$GBIN" review --apply not-a-scope-or-file
+assert_rc 1 "review --apply <bogus> exits 1"
+assert_contains "no proposal to apply" "reports nothing to apply for an unknown arg"
+
 section "review --clear (destructive; fixture is per-test)"
 capture env "$GBIN" review --clear home-ops
 assert_rc 0 "review --clear home-ops runs"
