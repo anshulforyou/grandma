@@ -15,6 +15,7 @@
 #   grandma watch <start|status|...>   analysis campaigns over your sessions
 #   grandma test [sweater]             verify the context-integrity invariants
 #   grandma doctor                     check dependencies and memory-home health
+#   grandma completions <bash|zsh>     print the shell tab-completion script
 #   grandma help                       this text
 #
 # Memory lives in GRANDMA_HOME (default ~/.grandma) — your files, your git repo,
@@ -31,6 +32,7 @@ case "$sub" in
   ingest)       shift; exec "$ENGINE/lib/grandma-ingest.sh" "$@" ;;
   watch)        shift; exec "$ENGINE/lib/grandma-watch.sh" "$@" ;;
   test)         shift; exec "$ENGINE/lib/grandma-test.sh" "$@" ;;
-  help|-h|--help) sed -n '3,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  completions)  shift; exec "$ENGINE/lib/grandma-completions.sh" "$@" ;;
+  help|-h|--help) sed -n '3,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *)            exec "$ENGINE/lib/grandma-launch.sh" "$@" ;;
 esac

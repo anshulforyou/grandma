@@ -67,6 +67,20 @@ git clone https://github.com/anshulforyou/grandma && cd grandma && ./bin/grandma
 
 Requirements: [Claude Code](https://claude.com/claude-code), git, jq, python3. macOS or Linux (Windows via WSL). `grandma doctor` checks everything and tells you how to fix what is missing.
 
+### Tab completion
+
+Optional, and worth it. With it on, `grandma <TAB>` lists your sweaters, `grandma per<TAB>` completes the one you mean, and `grandma acme <TAB>` lists the projects under acme. Add one line to your shell rc:
+
+```sh
+# bash: add to ~/.bashrc
+eval "$(grandma completions bash)"
+
+# zsh: add to ~/.zshrc, below an existing `autoload -Uz compinit && compinit`
+eval "$(grandma completions zsh)"
+```
+
+Start a new shell and press TAB after `grandma`. Grandma does not touch your rc file for you, so turning this on stays your call.
+
 ## How it works
 
 Three layers of memory, loaded in the right amounts at the right times:
@@ -147,6 +161,7 @@ grandma review [sweater]         review what background distills proposed
 grandma ingest [sweater]         catalog an existing folder of projects
 grandma watch ...              analysis campaigns over your sessions
 grandma test [sweater]           verify the integrity invariants
+grandma completions bash|zsh   print the shell tab-completion script
 grandma knit                   coming next: share a project's memory with a teammate (see below)
 ```
 
