@@ -62,6 +62,21 @@ list_scopes() {
   done
 }
 
+# extract_readable_transcript <transcript.jsonl> <out.md> — write a readable USER/ASSISTANT
+# text log (tool noise dropped, only text turns kept) that a headless model can read. Shared
+# by the end-of-session distiller and the pre-compaction checkpoint.
+extract_readable_transcript() {
+  jq -r '
+    select(.type=="user" or .type=="assistant")
+    | (.message.role // .type) as $role
+    | (.message.content) as $c
+    | if ($c|type)=="string" then "\($role|ascii_upcase): \($c)\n"
+      else ($c | map(select(.type=="text") | .text) | join("\n")) as $t
+           | if ($t|length)>0 then "\($role|ascii_upcase): \($t)\n" else empty end
+      end
+  ' "$1" > "$2"
+}
+
 # ---- portability helpers (BSD/macOS vs GNU/Linux) ----
 # GNU form (-c) FIRST: on Linux it succeeds cleanly; on macOS it fails with no stdout, so
 # the BSD (-f) fallback runs. The reverse order is unsafe — GNU parses `stat -f %m FILE` as

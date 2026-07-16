@@ -91,15 +91,7 @@ fi
 mkdir -p "$ROOT/.distill"
 find "$ROOT/.distill" -name '*.md' -mmin +120 -delete 2>/dev/null || true
 readable="$ROOT/.distill/$(basename "$TRANSCRIPT" .jsonl).md"
-jq -r '
-  select(.type=="user" or .type=="assistant")
-  | (.message.role // .type) as $role
-  | (.message.content) as $c
-  | if ($c|type)=="string" then "\($role|ascii_upcase): \($c)\n"
-    else ($c | map(select(.type=="text") | .text) | join("\n")) as $t
-         | if ($t|length)>0 then "\($role|ascii_upcase): \($t)\n" else empty end
-    end
-' "$TRANSCRIPT" > "$readable"
+extract_readable_transcript "$TRANSCRIPT" "$readable"
 lines=$(wc -l < "$readable" | tr -d ' ')
 
 # ---- assemble current memory context (scope, plus the project CLAUDE.md if any) ----

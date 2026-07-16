@@ -110,7 +110,7 @@ Writes land as uncommitted diffs in your memory repo. `git diff` is your review 
 
 ### She survives the context window
 
-Long sessions hit Claude Code's compaction and normally lose their instructions. Grandma installs a hook that re-injects your memory the moment compaction happens, so hour six behaves like minute one. When you exit, grandma looks over the session right then and shows you what she noted — the live diffs plus a drafted proposal — and asks whether to review now or leave it. Nothing is applied without you. (Sessions you didn't start with grandma get the same distill quietly in the background, surfaced at your next launch.)
+Long sessions hit Claude Code's compaction, which normally drops the instructions grandma injected at launch. Two hooks cover this. The moment compaction happens, grandma re-injects your memory, so hour six behaves like minute one. And just before compaction, it checkpoints the working state of the current task (what you decided, what is done, what is next) and folds that back in too, so the session keeps the thread of its own work and not just your standing preferences. When you exit, grandma looks over the session right then and shows you what she noted, the live diffs plus a drafted proposal, and asks whether to review now or leave it. Nothing is applied without you. (Sessions you did not start with grandma get the same distill quietly in the background, surfaced at your next launch.)
 
 ### She watches for your blind spots
 
