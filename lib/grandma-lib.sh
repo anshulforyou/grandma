@@ -76,3 +76,45 @@ notify_user() {
   osascript -e "display notification \"$2\" with title \"$1\" sound name \"Glass\"" 2>/dev/null \
     || notify-send "$1" "$2" 2>/dev/null || true
 }
+
+# Select a model CLI adapter: environment, sweater frontmatter, home config, default.
+grandma_select_cli() { # optional sweater name
+  local sweater="${1:-}" selected="${GRANDMA_CLI:-}" dir="" file="" value=""
+  if [[ -z "$selected" && -n "$sweater" ]]; then
+    dir="$(resolve_scope_dir "$sweater" 2>/dev/null || true)"
+    if [[ -n "$dir" ]]; then
+      for file in "$dir"/*.md; do
+        [[ -f "$file" ]] || continue
+        value="$(awk 'NR==1 && $0=="---" {f=1; next} f && $0=="---" {exit}
+          f && /^[[:space:]]*cli:[[:space:]]*/ {sub(/^[[:space:]]*cli:[[:space:]]*/,"");
+          gsub(/[[:space:]]+$/,""); print; exit}' "$file")"
+        [[ -n "$value" ]] && { selected="$value"; break; }
+      done
+    fi
+  fi
+  if [[ -z "$selected" ]]; then
+    for file in "$ROOT/config" "$ROOT/config.md"; do
+      [[ -f "$file" ]] || continue
+      value="$(sed -n 's/^[[:space:]]*cli:[[:space:]]*\([^#[:space:]]*\).*/\1/p' "$file" | head -n1)"
+      [[ -n "$value" ]] && { selected="$value"; break; }
+    done
+  fi
+  selected="$(printf '%s' "${selected:-claude}" | tr '[:upper:]' '[:lower:]')"
+  case "$selected" in (*[!a-z0-9_-]*|'') echo "invalid grandma CLI adapter: $selected" >&2; return 2 ;; esac
+  printf '%s' "$selected"
+}
+
+grandma_load_adapter() { # optional sweater name
+  GRANDMA_CLI_SELECTED="$(grandma_select_cli "${1:-}")" || return
+  GRANDMA_ADAPTER="$ENGINE/lib/adapters/$GRANDMA_CLI_SELECTED.sh"
+  [[ -r "$GRANDMA_ADAPTER" ]] || {
+    echo "unknown grandma CLI adapter '$GRANDMA_CLI_SELECTED'" >&2; return 2;
+  }
+  # shellcheck source=/dev/null
+  source "$GRANDMA_ADAPTER"
+  command -v adapter_capabilities >/dev/null 2>&1 \
+    && command -v adapter_headless >/dev/null 2>&1 \
+    && command -v adapter_launch >/dev/null 2>&1 || {
+      echo "adapter '$GRANDMA_CLI_SELECTED' is missing a required function" >&2; return 2;
+    }
+}

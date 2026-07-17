@@ -53,6 +53,7 @@ if [[ -z "$SCOPE" ]]; then
   echo "usage: grandma-save <sweater> [project] [--transcript <path>] [--auto]" >&2
   exit 2
 fi
+grandma_load_adapter "$SCOPE"
 
 # ---- resolve project (optional) ----
 SCOPE_DIR=""
@@ -90,11 +91,12 @@ fi
 # to that dir, so a /var/folders temp file would be unreadable. Prune stale ones first.
 mkdir -p "$ROOT/.distill"
 find "$ROOT/.distill" -name '*.md' -mmin +120 -delete 2>/dev/null || true
-readable="$ROOT/.distill/$(basename "$TRANSCRIPT" .jsonl).md"
+transcript_name="$(basename "$TRANSCRIPT")"
+readable="$ROOT/.distill/${transcript_name%.*}.md"
 jq -r '
-  select(.type=="user" or .type=="assistant")
-  | (.message.role // .type) as $role
-  | (.message.content) as $c
+  select(.type=="user" or .type=="assistant" or .type=="gemini")
+  | (if .type=="gemini" then "assistant" else (.message.role // .type) end) as $role
+  | (if .message then .message.content else .content end) as $c
   | if ($c|type)=="string" then "\($role|ascii_upcase): \($c)\n"
     else ($c | map(select(.type=="text") | .text) | join("\n")) as $t
          | if ($t|length)>0 then "\($role|ascii_upcase): \($t)\n" else empty end
@@ -131,7 +133,7 @@ if [[ "$AUTO" == "1" ]]; then
     echo "grandma auto-distill CIRCUIT BREAKER: $recent proposals in the last 5 min (cap $CAP). Refusing (likely runaway)." >&2
     exit 0
   fi
-  stamp="$(basename "$TRANSCRIPT" .jsonl)"
+  stamp="${transcript_name%.*}"
   out="$ROOT/proposals/${SCOPE}${PROJECT_NAME:+-$PROJECT_NAME}-${stamp}.md"
   ASYS="$(cat "$DISTILLER")
 
@@ -159,7 +161,7 @@ one-line why. If nothing is durable, output exactly 'No durable learnings.'"
   { echo "# grandma memory proposal"
     echo "# scope=$SCOPE${PROJECT_NAME:+ project=$PROJECT_NAME}  transcript=$(basename "$TRANSCRIPT")"
     echo
-    ( cd "$ROOT" && GRANDMA_DISTILLING=1 claude -p "$APROMPT" --append-system-prompt "$ASYS" 2>/dev/null ) || echo "(distiller failed)"
+    ( cd "$ROOT" && adapter_headless "$APROMPT" "$ASYS" 2>/dev/null ) || echo "(distiller failed)"
   } > "$out"
   rm -f "$readable"
   # Keep the proposal only if the distiller actually proposed something. A "No durable

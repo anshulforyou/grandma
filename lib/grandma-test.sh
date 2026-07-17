@@ -21,6 +21,9 @@ CORE=(lib/grandma-launch.sh lib/grandma-lib.sh lib/grandma-rehydrate.sh lib/gran
       lib/grandma-save.sh lib/grandma-ingest.sh lib/grandma-review.sh lib/assemble.sh \
       prompts/distiller.md prompts/onboard.md prompts/ingest.md prompts/new-scope.md \
       prompts/capture.md lib/grandma-watch.sh prompts/watch-digest.md prompts/watch-report.md)
+for adapter in "$ENGINE"/lib/adapters/*.sh; do
+  [[ -f "$adapter" ]] && CORE+=("lib/adapters/$(basename "$adapter")")
+done
 
 fail=0
 pass() { printf '  \033[32mok\033[0m   %s\n' "$1"; }
@@ -127,7 +130,7 @@ rg_ok=1
 # The SessionEnd hook must bail when GRANDMA_DISTILLING is set, and must set it when spawning.
 grep -q 'GRANDMA_DISTILLING.*==.*1.*exit 0\|GRANDMA_DISTILLING:-0.*==.*1' "$ENGINE/lib/grandma-session-end.sh" 2>/dev/null || { bad "grandma-session-end.sh missing GRANDMA_DISTILLING guard (recursion risk)"; rg_ok=0; }
 grep -q 'GRANDMA_DISTILLING=1' "$ENGINE/lib/grandma-session-end.sh" 2>/dev/null || { bad "grandma-session-end.sh does not set GRANDMA_DISTILLING when spawning the distill"; rg_ok=0; }
-grep -q 'GRANDMA_DISTILLING=1 claude -p' "$ENGINE/lib/grandma-save.sh" 2>/dev/null || { bad "grandma-save.sh --auto does not guard its claude -p with GRANDMA_DISTILLING"; rg_ok=0; }
+grep -q 'adapter_headless' "$ENGINE/lib/grandma-save.sh" 2>/dev/null || { bad "grandma-save.sh --auto does not use the guarded adapter headless path"; rg_ok=0; }
 [[ "$rg_ok" == "1" ]] && pass "auto-distill recursion guard in place"
 
 # ---- 8. Auto-distill circuit breaker present (airbag: bounds any runaway) ----
@@ -154,7 +157,10 @@ grep -q 'seven categories' "$ENGINE/prompts/capture.md" 2>/dev/null || { bad "ca
 grep -q 'prompts/capture.md' "$ENGINE/lib/grandma-launch.sh" 2>/dev/null || { bad "launch does not inject capture.md"; cap_ok=0; }
 grep -q 'prompts/capture.md' "$ENGINE/lib/grandma-rehydrate.sh" 2>/dev/null || { bad "grandma-rehydrate.sh does not re-inject capture.md after compaction"; cap_ok=0; }
 grep -q 'prompts/capture.md' "$ENGINE/lib/grandma-save.sh" 2>/dev/null || { bad "grandma-save.sh sweep does not load capture.md"; cap_ok=0; }
-grep -q -- '--add-dir "\$ROOT"' "$ENGINE/lib/grandma-launch.sh" 2>/dev/null || { bad "launch missing --add-dir for the memory repo (captures can't write)"; cap_ok=0; }
+if ! grep -q -- '--add-dir "\$ROOT"' "$ENGINE/lib/adapters/claude.sh" 2>/dev/null \
+   || ! grep -q -- '--include-directories "\$ROOT"' "$ENGINE/lib/adapters/gemini.sh" 2>/dev/null; then
+  bad "adapters do not grant the model access to the memory repo (captures can't write)"; cap_ok=0
+fi
 [[ "$cap_ok" == "1" ]] && pass "capture doctrine present and wired (launch + rehydrate + sweep + writable repo)"
 
 # ---- 11. Watch machinery is guarded (no runaway LLM, no leaks) ----

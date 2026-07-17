@@ -208,8 +208,11 @@ post_session() {
   distilled=1                                    # this session is being handled here; no background pass
 
   printf '\n  🧶 grandma is looking over the session… (Ctrl+C to skip)\n' >&2
-  local proposal=""
-  proposal="$("$ENGINE/lib/grandma-save.sh" "$SCOPE" ${RP_NAME:+"$RP_NAME"} --auto 2>/dev/null | tail -n1)"
+  local proposal="" save_args=("$SCOPE")
+  [[ -n "${RP_NAME:-}" ]] && save_args+=("$RP_NAME")
+  [[ -n "${GRANDMA_LAST_TRANSCRIPT:-}" ]] && save_args+=(--transcript "$GRANDMA_LAST_TRANSCRIPT")
+  save_args+=(--auto)
+  proposal="$("$ENGINE/lib/grandma-save.sh" "${save_args[@]}" 2>/dev/null | tail -n1)"
 
   # Split dirty files: touched during this session vs already dirty at launch. A missing
   # snapshot (abrupt earlier path, mktemp failure) degrades to the old count-everything.
@@ -285,10 +288,14 @@ post_session() {
 background_distill() {
   [ "${distilled:-0}" = 1 ] && return
   distilled=1
-  nohup "$ENGINE/lib/grandma-save.sh" "$SCOPE" ${RP_NAME:+"$RP_NAME"} --auto >/dev/null 2>&1 &
+  local save_args=("$SCOPE")
+  [[ -n "${RP_NAME:-}" ]] && save_args+=("$RP_NAME")
+  [[ -n "${GRANDMA_LAST_TRANSCRIPT:-}" ]] && save_args+=(--transcript "$GRANDMA_LAST_TRANSCRIPT")
+  save_args+=(--auto)
+  nohup "$ENGINE/lib/grandma-save.sh" "${save_args[@]}" >/dev/null 2>&1 &
   disown 2>/dev/null || true
 }
-on_hangup() { rm -f "${PRE_DIRTY_SNAP:-}" 2>/dev/null; background_distill; exit 129; }
+on_hangup() { rm -f "${PRE_DIRTY_SNAP:-}" 2>/dev/null; adapter_cleanup 2>/dev/null || true; background_distill; exit 129; }
 
 # ---- parse args: grandma <sweater> [project] [task...] [--full] [--writing] ----
 # A single bare word right after the scope (no spaces, before any task words) is the project.
@@ -339,6 +346,8 @@ if ! resolve_scope_dir "$SCOPE" >/dev/null 2>&1; then
     exit 1
   fi
 fi
+
+grandma_load_adapter "$SCOPE"
 
 # Assemble the scope bundle (global + scope memory). Same for all paths below.
 BUNDLE="$("$ASSEMBLE" "$SCOPE" ${PASS[@]+"${PASS[@]}"})"
@@ -427,6 +436,9 @@ if [[ "${GRANDMA_DRY_RUN:-0}" == "1" ]]; then
     if [[ "${GRANDMA_NO_HOOK:-0}" == "1" ]]; then
       echo "rehydrate:    skipped (GRANDMA_NO_HOOK=1)" >&2
       echo "autosave:     skipped (GRANDMA_NO_HOOK=1)" >&2
+    elif ! command -v adapter_install_compaction_hook >/dev/null 2>&1; then
+      echo "rehydrate:    unavailable ($GRANDMA_CLI_SELECTED has no compaction hook)" >&2
+      echo "autosave:     wrapped session distills after exit" >&2
     else
       echo "rehydrate:    would ensure SessionStart(compact) hook in $LAUNCH_DIR/.claude/settings.local.json" >&2
       if [[ "${GRANDMA_NO_AUTOSAVE:-0}" == "1" ]]; then
@@ -436,14 +448,15 @@ if [[ "${GRANDMA_DRY_RUN:-0}" == "1" ]]; then
       fi
     fi
   fi
-  [[ ${#PASSTHRU[@]} -gt 0 ]] && echo "passthru:     ${PASSTHRU[*]} (forwarded to claude)" >&2
+  echo "adapter:      $GRANDMA_CLI_SELECTED ($(adapter_capabilities))" >&2
+  [[ ${#PASSTHRU[@]} -gt 0 ]] && echo "passthru:     ${PASSTHRU[*]} (forwarded to $GRANDMA_CLI_SELECTED)" >&2
   if compgen -G "$ROOT/proposals/${SCOPE}*.md" >/dev/null 2>&1; then
     pn="$(ls -1 "$ROOT/proposals/${SCOPE}"*.md 2>/dev/null | wc -l | tr -d ' ')"
     echo "review:       $pn pending proposal(s) — accepting the offer execs: grandma review --apply $SCOPE" >&2
   fi
   echo "capture:      doctrine loaded (prompts/capture.md) · grandma repo writable via --add-dir" >&2
   echo "banner:       $BANNER" >&2
-  echo "would launch: (cd ${LAUNCH_DIR:-.} && claude --name grandma:$SCOPE${RP_NAME:+/$RP_NAME} ${PASSTHRU[*]:-} --append-system-prompt <bundle> <init>)" >&2
+  echo "would launch: (cd ${LAUNCH_DIR:-.} && $GRANDMA_CLI_SELECTED adapter launches grandma:$SCOPE${RP_NAME:+/$RP_NAME} with <bundle> <init>)" >&2
   echo "--- init prompt ---" >&2
   printf '%s\n' "$INIT" >&2
   echo "--- sysprompt: ${#SYSPROMPT} chars ---" >&2
@@ -452,8 +465,8 @@ fi
 
 # For a known project, ensure the compaction-rehydrate + auto-distill hooks are installed.
 if [[ -n "$LAUNCH_DIR" ]]; then
-  install_rehydrate_hook "$LAUNCH_DIR" "$SCOPE"
-  install_session_end_hook "$LAUNCH_DIR" "$SCOPE" "$RP_NAME"
+  command -v adapter_install_compaction_hook >/dev/null 2>&1 && adapter_install_compaction_hook "$LAUNCH_DIR" "$SCOPE"
+  [[ "$GRANDMA_CLI_SELECTED" == "claude" ]] && install_session_end_hook "$LAUNCH_DIR" "$SCOPE" "$RP_NAME"
   [[ "${GRANDMA_HOOK_INSTALLED:-0}" == "1" || "${GRANDMA_AUTOSAVE_INSTALLED:-0}" == "1" ]] && \
     printf '  + installed grandma hooks (%s/.claude/settings.local.json)\n' "$RP_NAME" >&2
 fi
@@ -520,8 +533,11 @@ distilled=0
 # Abrupt exit (window closed / terminated): capture the session in the background so it is
 # never lost. Clean exit: disarm, then post_session distills + reviews in the foreground.
 trap on_hangup HUP TERM
+# shellcheck disable=SC2034  # consumed by the sourced adapter function
+SESSION_NAME="grandma:$SCOPE${RP_NAME:+/$RP_NAME}"
 CLAUDE_RC=0
-claude --name "grandma:$SCOPE${RP_NAME:+/$RP_NAME}" --add-dir "$ROOT" ${PASSTHRU[@]+"${PASSTHRU[@]}"} --append-system-prompt "$SYSPROMPT" "$INIT" || CLAUDE_RC=$?
+adapter_launch || CLAUDE_RC=$?
 trap - HUP TERM
+adapter_cleanup
 post_session
 exit "$CLAUDE_RC"

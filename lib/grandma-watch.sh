@@ -27,18 +27,13 @@ set -uo pipefail
 ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT="${GRANDMA_HOME:-$HOME/.grandma}"   # the user's private memory home
 source "$ENGINE/lib/grandma-lib.sh"
+grandma_load_adapter ""
 WATCHES="$ROOT/watches"
 CLAUDE_PROJECTS="$HOME/.claude/projects"
 DIGEST_CAP="${GRANDMA_WATCH_DIGEST_CAP:-12}"     # max sessions digested per tick (cost bound)
 QUIET_MIN=30                                      # only digest sessions idle >= this many minutes
 
-claude_bin() {
-  command -v claude 2>/dev/null && return 0
-  for c in "$HOME/.local/bin/claude" "$HOME/.claude/local/claude" /opt/homebrew/bin/claude /usr/local/bin/claude; do
-    [[ -x "$c" ]] && { echo "$c"; return 0; }
-  done
-  return 1
-}
+adapter_bin() { command -v "$GRANDMA_CLI_SELECTED" 2>/dev/null; }
 
 slugify() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | cut -c1-40 | sed 's/^-//; s/-$//'; }
 
@@ -194,7 +189,7 @@ print(f"metrics: {len(old)} sessions")
 PY
 
   # ---- 2. LLM micro-digests: new, quiet sessions, capped per tick ----
-  local CB; CB="$(claude_bin || true)"
+  local CB; CB="$(adapter_bin || true)"
   if [[ -n "$CB" ]]; then
     touch "$dir/data/digests.done"
     : > "$dir/.work/batch.md"
@@ -240,11 +235,11 @@ PY
       SYS="$(cat "$ENGINE/prompts/watch-digest.md")
 
 STUDY QUESTION: $question"
-      OUT="$( cd "$ROOT" && GRANDMA_DISTILLING=1 "$CB" -p \
+      OUT="$( cd "$ROOT" && adapter_headless \
         "Digest each session below per your instructions, focused on the watch question.
 
 $(cat "$dir/.work/batch.md")" \
-        --append-system-prompt "$SYS" 2>/dev/null )" || OUT=""
+        "$SYS" 2>/dev/null )" || OUT=""
       if [[ -n "$OUT" ]]; then
         { echo; echo "----- tick $(date '+%Y-%m-%d %H:%M') -----"; printf '%s\n' "$OUT"; } >> "$dir/data/digests.md"
         cat "$dir/.work/batch.ids" >> "$dir/data/digests.done"
@@ -280,7 +275,7 @@ PY
     RSYS="$(cat "$ENGINE/prompts/watch-report.md")
 
 STUDY QUESTION: $question"
-    ( cd "$ROOT" && GRANDMA_DISTILLING=1 "$CB" -p \
+    ( cd "$ROOT" && adapter_headless \
       "Write the final watch report per your instructions.
 
 ===== METRICS =====
@@ -288,7 +283,7 @@ $(cat "$dir/.work/metrics-summary.md")
 
 ===== SESSION DIGESTS =====
 $(cat "$dir/data/digests.md" 2>/dev/null || echo '(no digests collected)')" \
-      --append-system-prompt "$RSYS" 2>/dev/null ) > "$dir/report.md" || true
+      "$RSYS" 2>/dev/null ) > "$dir/report.md" || true
     if [[ -s "$dir/report.md" ]]; then
       set_field "$sj" status '"complete"'
       notify_user "grandma watch" "Report ready: $(basename "$dir")"
