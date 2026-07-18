@@ -11,6 +11,7 @@
 #   grandma init                       first-run setup (memory home, PATH, interview)
 #   grandma save <sweater> [project]   distill a finished session into memory
 #   grandma review [sweater]           review auto-distill proposals
+#   grandma search [sweater] <query>   grep across your memory
 #   grandma ingest [sweater] [--root]  catalog a folder of projects into a sweater
 #   grandma watch <start|status|...>   analysis campaigns over your sessions
 #   grandma test [sweater]             verify the context-integrity invariants
@@ -29,10 +30,11 @@ case "$sub" in
   init|doctor)  shift; exec "$ENGINE/lib/grandma-init.sh" "$sub" "$@" ;;
   save)         shift; exec "$ENGINE/lib/grandma-save.sh" "$@" ;;
   review)       shift; exec "$ENGINE/lib/grandma-review.sh" "$@" ;;
+  search)       shift; exec "$ENGINE/lib/grandma-search.sh" "$@" ;;
   ingest)       shift; exec "$ENGINE/lib/grandma-ingest.sh" "$@" ;;
   watch)        shift; exec "$ENGINE/lib/grandma-watch.sh" "$@" ;;
   test)         shift; exec "$ENGINE/lib/grandma-test.sh" "$@" ;;
   completions)  shift; exec "$ENGINE/lib/grandma-completions.sh" "$@" ;;
-  help|-h|--help) sed -n '3,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  help|-h|--help) sed -n '3,23p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *)            exec "$ENGINE/lib/grandma-launch.sh" "$@" ;;
 esac
