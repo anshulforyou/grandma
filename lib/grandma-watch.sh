@@ -14,6 +14,7 @@
 #   grandma-watch status      active watches, progress so far
 #   grandma-watch report <slug|latest>   print a finished report (marks it seen)
 #   grandma-watch finish <slug>          end a watch early: synthesize the report now
+#   grandma-watch notify-test            fire one desktop notification to verify it works
 #   grandma-watch install-agent          install the daily launchd background job
 #
 # Design notes (hard lessons baked in):
@@ -291,7 +292,7 @@ $(cat "$dir/data/digests.md" 2>/dev/null || echo '(no digests collected)')" \
       --append-system-prompt "$RSYS" 2>/dev/null ) > "$dir/report.md" || true
     if [[ -s "$dir/report.md" ]]; then
       set_field "$sj" status '"complete"'
-      notify_user "grandma watch" "Report ready: $(basename "$dir")"
+      notify_user "grandma watch" "Report ready: $(basename "$dir")" || true
     else
       rm -f "$dir/report.md"
     fi
@@ -395,6 +396,12 @@ case "${1:-}" in
   status)        cmd_status ;;
   report)        shift; cmd_report "$@" ;;
   finish)        shift; cmd_finish "$@" ;;
+  notify-test)   # verify the desktop-notification path end to end (issue #4)
+                 if notify_user "grandma watch" "test notification — if you can read this, notify works"; then
+                   echo "notify-test: delivered (a desktop notification should have appeared)"
+                 else
+                   echo "notify-test: no notification delivered — see $ROOT/.distill/notify.log" >&2; exit 1
+                 fi ;;
   install-agent) cmd_install_agent ;;
-  *) sed -n '3,17p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) sed -n '3,18p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

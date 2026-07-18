@@ -184,7 +184,25 @@ file_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || ech
 file_size()  { stat -c %s "$1" 2>/dev/null || stat -f %z "$1" 2>/dev/null || echo 0; }
 epoch_date() { date -r "$1" '+%Y-%m-%d' 2>/dev/null || date -d "@$1" '+%Y-%m-%d' 2>/dev/null || echo "$1"; }
 notify_user() {
-  # title, body — macOS notification, Linux notify-send, else silent
-  osascript -e "display notification \"$2\" with title \"$1\" sound name \"Glass\"" 2>/dev/null \
-    || notify-send "$1" "$2" 2>/dev/null || true
+  # title, body — macOS notification, Linux notify-send, else log-and-skip.
+  # Returns 0 if a backend delivered, 1 if none did (and logs why). A detached watch
+  # tick has no terminal, so failures must land in a file to be verifiable, not /dev/null.
+  local root="${GRANDMA_HOME:-$HOME/.grandma}" log="${GRANDMA_HOME:-$HOME/.grandma}/.distill/notify.log" err
+  if command -v osascript >/dev/null 2>&1; then
+    osascript -e "display notification \"$2\" with title \"$1\" sound name \"Glass\"" 2>/dev/null && return 0
+  fi
+  if command -v notify-send >/dev/null 2>&1; then
+    # A backgrounded/nohup'd tick can inherit a shell with no session bus (SSH, tty, cron).
+    # notify-send then fails "cannot connect to bus". Derive it from the runtime dir if we can.
+    [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" && -S "${XDG_RUNTIME_DIR:-}/bus" ]] \
+      && export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+    if err="$(notify-send -a grandma "$1" "$2" 2>&1)"; then return 0; fi
+    mkdir -p "$root/.distill" 2>/dev/null
+    printf '%s notify-send failed: %s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$err" >> "$log" 2>/dev/null
+    return 1
+  fi
+  mkdir -p "$root/.distill" 2>/dev/null
+  printf '%s no notifier (install libnotify-bin / libnotify): [%s] %s\n' \
+    "$(date '+%Y-%m-%dT%H:%M:%S')" "$1" "$2" >> "$log" 2>/dev/null
+  return 1
 }

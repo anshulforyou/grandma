@@ -165,8 +165,12 @@ one-line why. If nothing is durable, output exactly 'No durable learnings.'"
   # Keep the proposal only if the distiller actually proposed something. A "No durable
   # learnings" result (the model often adds justification prose, so match the phrase anywhere),
   # a failed distill, or a header-only file must NOT linger or ping the user for review later.
+  # claude -p can also crash with exit 0, printing "Execution error" as its whole output, so
+  # the nonzero-exit marker never lands; match that as a full line (a real proposal could
+  # legitimately quote the phrase mid-sentence).
   if grep -qiF 'no durable learnings' "$out" \
      || grep -qF '(distiller failed)' "$out" \
+     || grep -qxF 'Execution error' "$out" \
      || ! grep -qvE '^#|^[[:space:]]*$' "$out"; then
     rm -f "$out"
   else

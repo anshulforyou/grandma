@@ -17,6 +17,14 @@ capture env PATH="$FB:$PATH" "$GBIN" doctor
 assert_rc 0 "doctor exits 0 when healthy"
 assert_contains "doctor: healthy" "reports healthy"
 
+section "doctor — desktop-notification check is OS-aware (issue #4)"
+capture env PATH="$FB:$PATH" "$GBIN" doctor
+if command -v osascript >/dev/null 2>&1; then
+  assert_not_contains "notify-send" "macOS (osascript present): no notify-send line"
+else
+  assert_contains "notify-send" "Linux (no osascript): doctor reports notify-send status"
+fi
+
 section "doctor — missing claude (scrubbed PATH excludes claude)"
 # /usr/bin:/bin has git/python3 (and jq on CI) but never claude, so this is deterministic
 # regardless of whether the dev machine has claude installed.

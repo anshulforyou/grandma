@@ -48,13 +48,15 @@ if [ "$prc" -eq 2 ]; then skip "no usable pty tool — interactive picker not ex
 elif [ "$prc" -eq 142 ]; then fail "picker hung under a pty"
 else ok "interactive picker runs and quits without hanging (rc=$prc)"; fi
 
-section "launch — end-of-session review prompt in a pty (macOS/skip-if-no-pty)"
-# Make the memory home dirty so post_session has something to surface deterministically
-# (no transcript needed). Then run the wrapped launch in a pty; the fake claude exits at
-# once, post_session sees the uncommitted diff and offers a review; we answer 'n'.
-printf -- '- extra note added mid-session\n' >> "$GRANDMA_HOME/globex/facts.md"
+section "launch — pre-existing dirt does NOT re-trigger the session review (pty)"
+# Memory already dirty BEFORE the session (reviewed in an earlier session, never
+# committed) and a fake claude that captures nothing. post_session must not announce
+# "noted something" for that old diff again — it gets a quiet still-uncommitted footer
+# instead. FAILS while post_session counts all porcelain dirt; PASSES once it compares
+# against a launch-time fingerprint snapshot.
+printf -- '- old note from an earlier session\n' >> "$GRANDMA_HOME/globex/facts.md"
 SHIM_L="$(make_fake_claude "$TMP/bin3")"; export SHIM_L GBIN_L="$GBIN" H_L="$GRANDMA_HOME"
-# Assert only on output printed BEFORE the read prompt — pty input timing across the
+# Assert only on output printed BEFORE any read prompt — pty input timing across the
 # claude-exit boundary is not reliable enough to pin which answer branch runs.
 out="$(printf 'n\n' | run_in_pty 'GRANDMA_HOME="$H_L" GRANDMA_NO_SPLASH=1 HOME="'"$TMP"'/fh" PATH="$SHIM_L:$PATH" "$GBIN_L" globex 2>&1')"
 prc=$?
@@ -64,8 +66,36 @@ else
   # shellcheck disable=SC2034  # LAST_OUT is read by assert_* (sourced from lib/assert.sh)
   LAST_OUT="$out"
   assert_contains "grandma is looking over the session" "post_session runs after the wrapped session"
-  assert_contains "grandma noted something" "detects the session's memory changes"
+  assert_not_contains "review now?" "an already-dirty file alone does not re-offer the review"
+  assert_contains "still uncommitted" "old dirt is surfaced as a quiet footer, not a review prompt"
+fi
+
+section "launch — a capture DURING the session does trigger the review (pty)"
+# Same home (facts.md still carries the old dirt), plus a second pre-dirty file the
+# session never touches. The shim appends a live capture to facts.md mid-session; only
+# that file counts as this session's change, the untouched one stays a footer item.
+printf -- '- stale edit, untouched this session\n' >> "$GRANDMA_HOME/globex/decisions.md"
+SHIM_C="$TMP/bin3c"; mkdir -p "$SHIM_C"
+cat > "$SHIM_C/claude" <<EOF
+#!/usr/bin/env bash
+case "\${1:-}" in --version|-v) echo "0.0.0 (fake claude)"; exit 0 ;; esac
+[ "\${1:-}" = "-p" ] && exit 0
+printf -- '- captured mid-session\n' >> "$GRANDMA_HOME/globex/facts.md"
+exit 0
+EOF
+chmod +x "$SHIM_C/claude"
+export SHIM_C
+out="$(printf 'n\n' | run_in_pty 'GRANDMA_HOME="$H_L" GRANDMA_NO_SPLASH=1 HOME="'"$TMP"'/fh" PATH="$SHIM_C:$PATH" "$GBIN_L" globex 2>&1')"
+prc=$?
+if [ "$prc" -eq 2 ]; then
+  skip "no usable pty tool — end-of-session review not exercised"
+else
+  # shellcheck disable=SC2034  # LAST_OUT is read by assert_* (sourced from lib/assert.sh)
+  LAST_OUT="$out"
+  assert_contains "grandma noted something" "detects the session's own memory change"
+  assert_contains "1 memory file(s) updated live this session" "counts only the file this session touched"
   assert_contains "review now?" "offers an immediate review at session end (not left for later)"
+  assert_contains "1 earlier memory change(s) still uncommitted" "the untouched dirty file stays out of the review"
 fi
 
 section "launch — offers to review a prior session's proposal (pty)"

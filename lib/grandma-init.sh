@@ -46,6 +46,11 @@ cmd_doctor() {
   else
     ok "mascot: wordmark logo (this terminal has no image protocol)"
   fi
+  # Desktop notifications: macOS uses osascript (always present); Linux needs notify-send.
+  if ! command -v osascript >/dev/null 2>&1; then
+    command -v notify-send >/dev/null 2>&1 && ok "notify-send (watch-report desktop notifications)" \
+      || warn "no notify-send — watch reports won't notify (apt install libnotify-bin / dnf install libnotify); verify with: grandma watch notify-test"
+  fi
   case ":$PATH:" in *":$ENGINE/bin:"*) ok "grandma on PATH" ;; *) warn "engine bin not on PATH — add: export PATH=\"$ENGINE/bin:\$PATH\"" ;; esac
 
   [[ "$bad" == "0" ]] && echo "doctor: healthy" || { echo "doctor: fix the items above"; return 1; }
