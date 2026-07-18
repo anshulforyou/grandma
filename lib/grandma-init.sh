@@ -9,6 +9,8 @@
 set -uo pipefail
 ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT="${GRANDMA_HOME:-$HOME/.grandma}"
+# For grandma_splash / pick_mascot_renderer, so the interview shows the same mascot as a session.
+source "$ENGINE/lib/grandma-lib.sh"
 
 ok()   { printf '  \033[32mok\033[0m   %s\n' "$1"; }
 warn() { printf '  \033[33mwarn\033[0m %s\n' "$1"; }
@@ -37,7 +39,13 @@ cmd_doctor() {
   fi
 
   echo "== nice to have =="
-  command -v imgcat >/dev/null 2>&1 && ok "imgcat (animated mascot splash)" || warn "no imgcat — splash falls back to ASCII granny (iTerm2 users: install imgcat)"
+  local mren; mren="$(pick_mascot_renderer)"
+  if terminal_supports_graphics; then
+    [[ -n "$mren" ]] && ok "mascot: GIF via $mren (graphics terminal)" \
+                     || warn "graphics terminal but no renderer — 'brew install chafa' for the GIF mascot"
+  else
+    ok "mascot: wordmark logo (this terminal has no image protocol)"
+  fi
   # Desktop notifications: macOS uses osascript (always present); Linux needs notify-send.
   if ! command -v osascript >/dev/null 2>&1; then
     command -v notify-send >/dev/null 2>&1 && ok "notify-send (watch-report desktop notifications)" \
@@ -100,6 +108,7 @@ cmd_init() {
     if [[ "${a:-y}" =~ ^[Yy]?$ ]]; then
       local SYS; SYS="$(cat "$ENGINE/prompts/init-interview.md")"
       cd "$ROOT" || exit 1
+      grandma_splash "grandma"
       exec claude --name "grandma:init" --append-system-prompt "$SYS" \
         "Introduce yourself, explain what a sweater is, interview me, and fill in my identity and preferences per your instructions."
     fi
