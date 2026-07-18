@@ -25,33 +25,8 @@ ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT="${GRANDMA_HOME:-$HOME/.grandma}"   # the user's private memory home
 ASSEMBLE="$ENGINE/lib/assemble.sh"
 
-# grandma_splash — the "grandma pops up" moment before the session loads.
-# Plays assets/grandma.gif via imgcat (iTerm2) if present, else prints ASCII granny.
-# Skip with GRANDMA_NO_SPLASH=1; tune the pause with GRANDMA_SPLASH_SECS.
-grandma_splash() {
-  [[ "${GRANDMA_NO_SPLASH:-0}" == "1" ]] && return 0
-  local scope="$1" gif="$ENGINE/assets/grandma.gif"
-  local P=$'\033[95m' B=$'\033[1m' D=$'\033[2m' R=$'\033[0m'
-  printf '\n'
-  if [[ -f "$gif" ]] && command -v imgcat >/dev/null 2>&1; then
-    imgcat --height "${GRANDMA_SPLASH_HEIGHT:-14}" "$gif" 2>/dev/null || true
-  else
-    printf '%s' "$P"
-    printf '%s\n' "        .-\"\"\"\"\"-."
-    printf '%s\n' "       / .---. \\"
-    printf '%s\n' "      / /     \\ \\"
-    printf '%s\n' "      | | o o | |"
-    printf '%s\n' "     _|  \\ ^ /  |_"
-    printf '%s\n' "    / |   '-'   | \\"
-    printf '%s\n' "      |         |"
-    printf '%s%s' "$R" ""
-  fi
-  printf '  %s%sGRANDMA%s  %sshe remembers everything%s\n' "$B" "$P" "$R" "$D" "$R"
-  printf '  %sfetching %s memory...%s\n\n' "$D" "$scope" "$R"
-  sleep "${GRANDMA_SPLASH_SECS:-0.7}"
-}
-
 # ---- helpers ----
+# grandma_splash lives in grandma-lib.sh so launch and init share one mascot implementation.
 source "$ENGINE/lib/grandma-lib.sh"
 
 # Launch the new-sweater creator: read a free-text description, hand it to an LLM session
@@ -365,10 +340,11 @@ fi
 
 # Dry run: show what would launch, don't start Claude.
 if [[ "${GRANDMA_DRY_RUN:-0}" == "1" ]]; then
-  if [[ -f "$ENGINE/assets/grandma.gif" ]] && command -v imgcat >/dev/null 2>&1; then
-    echo "splash:       gif (assets/grandma.gif via imgcat)" >&2
+  splash_renderer="$(pick_mascot_renderer)"
+  if [[ -f "$ENGINE/assets/grandma.gif" && -n "$splash_renderer" ]]; then
+    echo "splash:       gif (assets/grandma.gif via $splash_renderer)" >&2
   else
-    echo "splash:       ascii granny (drop assets/grandma.gif for the gif)" >&2
+    echo "splash:       wordmark logo (this terminal has no image protocol)" >&2
   fi
   if [[ -n "$LAUNCH_DIR" ]]; then
     echo "mode:         KNOWN project '$RP_NAME' → cd $LAUNCH_DIR (its CLAUDE.md auto-loads)" >&2
