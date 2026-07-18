@@ -111,6 +111,27 @@ else
   skip "ripgrep not installed — grep path covered above"
 fi
 
+section "search — degrades and refuses cleanly"
+capture env GRANDMA_SEARCH_TOOL=ack "$GBIN" search pnpm
+assert_rc 2 "an unknown GRANDMA_SEARCH_TOOL is refused, not silently ignored"
+assert_contains "unknown GRANDMA_SEARCH_TOOL" "names the bad value"
+# Asking for rg on a box without it must fall back to grep, not die. /usr/bin:/bin has the
+# coreutils this command needs and (on any normal machine) no rg.
+capture env PATH=/usr/bin:/bin GRANDMA_SEARCH_TOOL=rg "$GBIN" search pnpm
+assert_rc 0 "GRANDMA_SEARCH_TOOL=rg with no rg on PATH degrades to grep"
+assert_contains "global/preferences.md" "and still returns the match"
+capture env "$GBIN" search --help
+assert_rc 0 "--help exits 0"
+assert_contains "usage: grandma search" "and prints the usage"
+
+section "search — an empty or missing memory home says so, and does not crash"
+capture env GRANDMA_HOME="$TMP/does-not-exist" "$GBIN" search pnpm
+assert_rc 1 "a missing memory home is 'nothing found', not a crash"
+assert_contains "no memory to search" "explains what to do about it"
+mkdir -p "$TMP/bare"
+capture env GRANDMA_HOME="$TMP/bare" "$GBIN" search pnpm
+assert_rc 1 "a home with no global/ and no sweaters is the same"
+
 section "search — wired into the CLI surface"
 capture env "$GBIN" help
 assert_rc 0 "help runs"
