@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- `grandma search [sweater] <query>`: read-only literal grep across your memory, in
+  `file:line:text` form. Uses ripgrep when present and grep otherwise (no new hard
+  dependency), and both engines are made to agree. Exit 0/1/2 follows grep's convention.
+
 ## v0.1.0
 
 First public cut.

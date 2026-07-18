@@ -18,7 +18,7 @@ ASSEMBLE="$ENGINE/lib/assemble.sh"
 # Scope-agnostic runtime files that must NOT contain scope-specific content: the runtime
 # scripts, and the generic prompts that run across all scopes.
 CORE=(lib/grandma-launch.sh lib/grandma-lib.sh lib/grandma-rehydrate.sh lib/grandma-session-end.sh \
-      lib/grandma-save.sh lib/grandma-ingest.sh lib/grandma-review.sh lib/assemble.sh \
+      lib/grandma-save.sh lib/grandma-ingest.sh lib/grandma-review.sh lib/grandma-search.sh lib/assemble.sh \
       prompts/distiller.md prompts/onboard.md prompts/ingest.md prompts/new-scope.md \
       prompts/capture.md lib/grandma-watch.sh prompts/watch-digest.md prompts/watch-report.md)
 

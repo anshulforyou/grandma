@@ -23,7 +23,7 @@ source "$ENGINE/lib/grandma-lib.sh"
 
 # First-word candidates that are NOT sweaters: the reserved subcommands (keep in sync with
 # bin/grandma). A sweater whose name collides with one of these is shadowed, as documented.
-SUBCOMMANDS="init save review ingest watch test doctor completions help"
+SUBCOMMANDS="init save review search ingest watch test doctor completions help"
 
 # _gc_scopes - completable first words: every sweater, then the subcommands.
 _gc_scopes() {
