@@ -24,6 +24,13 @@ assert_contains "home-ops" "lists the kebab sweater"
 assert_contains "save" "includes the subcommands as first-word candidates"
 assert_contains "completions" "includes the completions subcommand itself"
 
+section "completions - watch commands"
+capture env "$GBIN" completions __watch_commands
+assert_rc 0 "watch command lister runs under set -u"
+for command in start tick list status report finish notify-test install-agent; do
+  assert_contains "$command" "lists watch command '$command'"
+done
+
 section "completions - projects under a scope (kebab-safe)"
 capture env "$GBIN" completions __projects home-ops
 assert_rc 0 "completions __projects home-ops runs (kebab scope resolves, not truncated to 'home')"
@@ -46,6 +53,64 @@ assert_contains "grandma completions __scopes" "bash script calls the scope list
 capture env "$GBIN" completions zsh
 assert_rc 0 "completions zsh runs"
 assert_contains "compdef _grandma_complete grandma" "zsh script registers via compdef"
+
+section "completions - subcommand routing"
+# Source the generated bash completion exactly as a user would. A function named grandma
+# keeps its helper calls inside this fixture rather than depending on an installed command.
+grandma() { "$GBIN" "$@"; }
+eval "$("$GBIN" completions bash)"
+
+for sub in save review ingest test; do
+  COMP_WORDS=(grandma "$sub" h); COMP_CWORD=2; COMPREPLY=()
+  _grandma_complete
+  # shellcheck disable=SC2034  # read by assert helpers from test/lib/assert.sh
+  LAST_OUT="${COMPREPLY[*]}"
+  # shellcheck disable=SC2034  # read by assert helpers from test/lib/assert.sh
+  LAST_RC=0
+  assert_rc 0 "$sub completion runs"
+  assert_contains "home-ops" "$sub completes sweaters, including kebab-case names"
+done
+
+COMP_WORDS=(grandma watch s); COMP_CWORD=2; COMPREPLY=()
+_grandma_complete
+# shellcheck disable=SC2034  # read by assert helpers from test/lib/assert.sh
+LAST_OUT="${COMPREPLY[*]}"
+# shellcheck disable=SC2034  # read by assert helpers from test/lib/assert.sh
+LAST_RC=0
+assert_rc 0 "watch completion runs"
+assert_contains "start" "watch completes its subcommands"
+assert_contains "status" "watch includes every matching subcommand"
+
+COMP_WORDS=(grandma globex B); COMP_CWORD=2; COMPREPLY=()
+_grandma_complete
+# shellcheck disable=SC2034  # read by assert helpers from test/lib/assert.sh
+LAST_OUT="${COMPREPLY[*]}"
+# shellcheck disable=SC2034  # read by assert helpers from test/lib/assert.sh
+LAST_RC=0
+assert_rc 0 "launch completion still runs"
+assert_contains "Billing" "launch completion still offers projects"
+
+if command -v zsh >/dev/null 2>&1; then
+  capture env GBIN="$GBIN" GRANDMA_HOME="$GRANDMA_HOME" zsh -fc '
+    grandma() { "$GBIN" "$@"; }
+    compdef() { :; }
+    compadd() {
+      local target
+      if [[ "$1" == "-a" ]]; then
+        target="$2"
+        print -rl -- "${(@P)target}"
+      fi
+    }
+    eval "$("$GBIN" completions zsh)"
+    words=(grandma save h); CURRENT=3; _grandma_complete
+    words=(grandma watch s); CURRENT=3; _grandma_complete
+  '
+  assert_rc 0 "zsh subcommand completion runs"
+  assert_contains "home-ops" "zsh scope-taking subcommands complete sweaters"
+  assert_contains "start" "zsh watch completion lists watch subcommands"
+else
+  skip "zsh is unavailable"
+fi
 
 section "completions - bad or empty args are graceful, not crashes"
 capture env "$GBIN" completions
