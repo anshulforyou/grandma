@@ -169,7 +169,11 @@ claude_proj_dir() { printf '%s/.claude/projects/%s' "$HOME" "$(printf '%s' "$1" 
 list_scopes() {
   local d n
   for d in "$ROOT"/*/; do
-    n="$(basename "$d")"; [[ "$n" == "global" ]] && continue
+    n="$(basename "$d")"
+    # global is not a sweater; proposals/, watches/, .distill/ are gitignored scratch, not
+    # memory. A proposal carries scope: frontmatter, so the filter below would otherwise
+    # enumerate proposals/ as a scope the moment one exists (and trip the core-purity check).
+    case "$n" in global|proposals|watches|.distill) continue ;; esac
     if grep -lqE '^scope:' "$d"/*.md 2>/dev/null; then echo "$n"; fi
   done
 }
