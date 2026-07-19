@@ -49,5 +49,27 @@ capture env "$GBIN" watch status
 assert_rc 0 "watch status runs"
 assert_contains "sessions measured" "status reports progress"
 
+section "watch — notify-test delivers via a backend (issue #4)"
+# Shadow osascript with a failing stub (neutralizes the real macOS notifier so the suite
+# never pops a live notification) and provide a fake notify-send that just succeeds.
+NB="$TMP/notifybin"; mkdir -p "$NB"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$NB/osascript"   # "not macOS": force fallthrough
+printf '#!/usr/bin/env bash\nexit 0\n' > "$NB/notify-send" # a working desktop notifier
+chmod +x "$NB/osascript" "$NB/notify-send"
+capture env PATH="$NB:/usr/bin:/bin" "$GBIN" watch notify-test
+assert_rc 0 "notify-test exits 0 when a notifier delivers"
+assert_contains "delivered" "reports delivery"
+
+section "watch — notify-test logs (not silent) when delivery fails"
+# Both backends fail (osascript stubbed off; notify-send present but errors, like a
+# headless box with no session bus — the real Linux failure). Must log, not swallow.
+NN="$TMP/nonotify"; mkdir -p "$NN"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$NN/osascript"
+printf '#!/usr/bin/env bash\necho "Cannot autolaunch D-Bus without X11 DISPLAY" >&2; exit 1\n' > "$NN/notify-send"
+chmod +x "$NN/osascript" "$NN/notify-send"
+capture env PATH="$NN:/usr/bin:/bin" "$GBIN" watch notify-test
+assert_rc 1 "notify-test exits 1 when delivery fails"
+assert_file "$GRANDMA_HOME/.distill/notify.log" "failure is logged, not swallowed"
+
 echo
 if [ "$FAILS" -eq 0 ]; then echo "cmd_watch: PASS"; else echo "cmd_watch: $FAILS FAILURE(S)"; exit 1; fi

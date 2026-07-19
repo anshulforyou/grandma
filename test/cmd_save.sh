@@ -75,6 +75,25 @@ after="$(ls "$GRANDMA_HOME/proposals/"*.md 2>/dev/null | wc -l | tr -d ' ')"
 [ "$after" = "$before" ] && ok "a no-op distill leaves no proposal file (won't ping you later)" \
                          || fail "no-op distill left a proposal ($before -> $after)"
 
+section "save --auto drops a crashed distill that exits 0 (Execution error) — no corpse proposal"
+# claude -p can fail with exit 0: it prints "Execution error" to stdout and exits clean,
+# so the (distiller failed) marker never lands. The content filter must catch it instead.
+ERRB="$TMP/err-bin"; mkdir -p "$ERRB"
+cat > "$ERRB/claude" <<'ERRSHIM'
+#!/usr/bin/env bash
+case "${1:-}" in --version|-v) echo 0.0.0; exit 0 ;; esac
+if [ "${1:-}" = "-p" ]; then echo "Execution error"; exit 0; fi
+exit 0
+ERRSHIM
+chmod +x "$ERRB/claude"
+TRANS4="$TMP/err-session.jsonl"; make_fake_transcript "$TRANS4"
+before="$(ls "$GRANDMA_HOME/proposals/"*.md 2>/dev/null | wc -l | tr -d ' ')"
+capture env PATH="$ERRB:$PATH" "$GBIN" save globex billing --auto --transcript "$TRANS4"
+assert_rc 0 "save --auto with an exit-0 crash runs"
+after="$(ls "$GRANDMA_HOME/proposals/"*.md 2>/dev/null | wc -l | tr -d ' ')"
+[ "$after" = "$before" ] && ok "an exit-0 Execution error leaves no proposal file (no review offer on a corpse)" \
+                         || fail "exit-0 Execution error left a corpse proposal ($before -> $after)"
+
 section "save — unknown scope with a project fails cleanly"
 capture env "$GBIN" save no-such-scope billing --transcript "$TRANS"
 assert_rc 1 "save on an unknown scope exits 1 (no unbound crash)"

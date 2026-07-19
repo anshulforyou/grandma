@@ -81,6 +81,28 @@ eval "$(grandma completions zsh)"
 
 Start a new shell and press TAB after `grandma`. Grandma does not touch your rc file for you, so turning this on stays your call.
 
+### Search your memory
+
+Sometimes you just want to know what she remembers, without starting a session:
+
+```text
+$ grandma search pnpm
+global/preferences.md:9:- pnpm only, never yarn
+acme/facts.md:4:- pnpm workspaces, one lockfile at the root
+  2 match(es) in 2 file(s)
+
+$ grandma search acme migrations       # scoped to one sweater
+acme/facts.md:6:- Postgres, migrations via atlas only
+  1 match(es) in 1 file(s) · sweater acme
+```
+
+Read-only, and it never starts Claude. Output is `file:line:text`, so it pipes like grep.
+The scoped form searches that sweater alone (not global), so a hit always tells you which
+sweater owns the memory. Matching is a case-insensitive literal string — ripgrep when you
+have it, grep otherwise, and both are made to agree. Exit codes follow grep: `0` matches,
+`1` no matches, `2` bad usage. Pending proposals and watch scratch are not searched; they
+are not memory until you accept them.
+
 ## How it works
 
 Three layers of memory, loaded in the right amounts at the right times:
@@ -158,6 +180,7 @@ grandma <sweater> [project]      launch a remembered session
 grandma init | doctor          setup and health checks
 grandma save <sweater> [project] distill a finished session into memory
 grandma review [sweater]         review what background distills proposed
+grandma search [sweater] <query> grep across your memory
 grandma ingest [sweater]         catalog an existing folder of projects
 grandma watch ...              analysis campaigns over your sessions
 grandma test [sweater]           verify the integrity invariants
@@ -170,8 +193,8 @@ grandma knit                   coming next: share a project's memory with a team
 - **Exit sessions with Ctrl+D**, not `/exit`. Claude Code's `/exit` skips SessionEnd
   hooks (upstream issue), so the end-of-session distill only runs on Ctrl+D. Manual
   fallback always works: `grandma save <sweater>`.
-- Sweater names that collide with subcommands (`init`, `save`, `review`, `ingest`,
-  `watch`, `test`, `doctor`, `help`) are reserved.
+- Sweater names that collide with subcommands (`init`, `save`, `review`, `search`,
+  `ingest`, `watch`, `test`, `doctor`, `help`) are reserved.
 - macOS is the daily-driven platform. Linux is CI-tested but younger: if something
   misbehaves, `grandma doctor` first, then an issue with its output.
 

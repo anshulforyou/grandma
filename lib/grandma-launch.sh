@@ -25,33 +25,8 @@ ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT="${GRANDMA_HOME:-$HOME/.grandma}"   # the user's private memory home
 ASSEMBLE="$ENGINE/lib/assemble.sh"
 
-# grandma_splash — the "grandma pops up" moment before the session loads.
-# Plays assets/grandma.gif via imgcat (iTerm2) if present, else prints ASCII granny.
-# Skip with GRANDMA_NO_SPLASH=1; tune the pause with GRANDMA_SPLASH_SECS.
-grandma_splash() {
-  [[ "${GRANDMA_NO_SPLASH:-0}" == "1" ]] && return 0
-  local scope="$1" gif="$ENGINE/assets/grandma.gif"
-  local P=$'\033[95m' B=$'\033[1m' D=$'\033[2m' R=$'\033[0m'
-  printf '\n'
-  if [[ -f "$gif" ]] && command -v imgcat >/dev/null 2>&1; then
-    imgcat --height "${GRANDMA_SPLASH_HEIGHT:-14}" "$gif" 2>/dev/null || true
-  else
-    printf '%s' "$P"
-    printf '%s\n' "        .-\"\"\"\"\"-."
-    printf '%s\n' "       / .---. \\"
-    printf '%s\n' "      / /     \\ \\"
-    printf '%s\n' "      | | o o | |"
-    printf '%s\n' "     _|  \\ ^ /  |_"
-    printf '%s\n' "    / |   '-'   | \\"
-    printf '%s\n' "      |         |"
-    printf '%s%s' "$R" ""
-  fi
-  printf '  %s%sGRANDMA%s  %sshe remembers everything%s\n' "$B" "$P" "$R" "$D" "$R"
-  printf '  %sfetching %s memory...%s\n\n' "$D" "$scope" "$R"
-  sleep "${GRANDMA_SPLASH_SECS:-0.7}"
-}
-
 # ---- helpers ----
+# grandma_splash lives in grandma-lib.sh so launch and init share one mascot implementation.
 source "$ENGINE/lib/grandma-lib.sh"
 
 # Launch the new-sweater creator: read a free-text description, hand it to an LLM session
@@ -198,9 +173,28 @@ print(os.path.commonpath(dirs) if dirs else '')
 " 2>/dev/null || true
 }
 
+# dirty_md_files — repo-relative paths of uncommitted .md changes in the memory home.
+# proposals/ and watches/ are gitignored, so this is reviewable memory only.
+dirty_md_files() {
+  git -C "$ROOT" status --porcelain -- '*.md' 2>/dev/null | while IFS= read -r _l; do
+    _f="${_l:3}"; printf '%s\n' "${_f##* -> }"
+  done
+}
+
+# md_fingerprint <relpath> — one stable line for a dirty file's working content (cksum is
+# POSIX, same output on BSD and GNU). post_session compares these against a launch-time
+# snapshot to tell files captured DURING this session from dirt that predates it.
+md_fingerprint() {
+  if [[ -f "$ROOT/$1" ]]; then printf '%s %s\n' "$(cksum < "$ROOT/$1")" "$1"
+  else printf 'deleted %s\n' "$1"; fi
+}
+
 # post_session — runs after a wrapped session returns (we do NOT exec claude). Distills the
-# just-ended session in the FOREGROUND and offers an immediate review of everything grandma
-# noted (live captures + the drafted proposal), instead of leaving it for the next launch.
+# just-ended session in the FOREGROUND and offers an immediate review of what THIS session
+# produced (live captures + the drafted proposal). Files that were already dirty at launch
+# (reviewed earlier, not yet committed) are fingerprint-matched out: they get one quiet
+# footer line, never a second review prompt. After a reviewed diff, offers a user-confirmed
+# commit so reviewed captures stop re-appearing as dirt.
 # Interactive terminals only; honors GRANDMA_NO_AUTOSAVE. Uses $SCOPE / $RP_NAME / $ROOT.
 post_session() {
   set +e                                                # best-effort UX; never abort the exit
@@ -213,27 +207,58 @@ post_session() {
   local proposal=""
   proposal="$("$ENGINE/lib/grandma-save.sh" "$SCOPE" ${RP_NAME:+"$RP_NAME"} --auto 2>/dev/null | tail -n1)"
 
-  local dirty prop_ok=0
-  dirty="$(git -C "$ROOT" status --porcelain -- '*.md' 2>/dev/null | wc -l | tr -d ' ')"
+  # Split dirty files: touched during this session vs already dirty at launch. A missing
+  # snapshot (abrupt earlier path, mktemp failure) degrades to the old count-everything.
+  local changed=() stale=() _f
+  while IFS= read -r _f; do
+    [[ -n "$_f" ]] || continue
+    if [[ -f "${PRE_DIRTY_SNAP:-}" ]] && grep -Fxq "$(md_fingerprint "$_f")" "${PRE_DIRTY_SNAP:-}" 2>/dev/null; then
+      stale+=("$_f")
+    else
+      changed+=("$_f")
+    fi
+  done < <(dirty_md_files)
+  rm -f "${PRE_DIRTY_SNAP:-}" 2>/dev/null
+
+  local prop_ok=0
   if [[ -n "$proposal" && -f "$proposal" ]] \
      && grep -qvE '^#|^[[:space:]]*$|No durable learnings|\(distiller failed\)' "$proposal" 2>/dev/null; then
     prop_ok=1
   fi
 
-  if [[ "${dirty:-0}" -eq 0 && "$prop_ok" -eq 0 ]]; then
-    printf '  🧶 nothing new to remember from this session.\n\n' >&2
+  if [[ ${#changed[@]} -eq 0 && "$prop_ok" -eq 0 ]]; then
+    printf '  🧶 nothing new to remember from this session.\n' >&2
+    [[ ${#stale[@]} -gt 0 ]] && printf '  🧶 %s earlier memory change(s) still uncommitted — review: git -C %s diff\n' "${#stale[@]}" "$ROOT" >&2
+    printf '\n' >&2
     return 0
   fi
 
   printf '\n  🧶 grandma noted something from this %s session:\n' "$SCOPE" >&2
-  [[ "${dirty:-0}" -gt 0 ]] && printf '     • %s memory file(s) updated live (uncommitted)\n' "$dirty" >&2
-  [[ "$prop_ok" -eq 1 ]]    && printf '     • a drafted proposal to review\n' >&2
+  [[ ${#changed[@]} -gt 0 ]] && printf '     • %s memory file(s) updated live this session (uncommitted)\n' "${#changed[@]}" >&2
+  [[ "$prop_ok" -eq 1 ]]     && printf '     • a drafted proposal to review\n' >&2
   printf '  review now? [Y/n] ' >&2
   local ans; read -r ans
   if [[ "${ans:-y}" =~ ^[Yy]?$ ]]; then
-    if [[ "${dirty:-0}" -gt 0 ]]; then
-      printf '\n  ── live memory diff (git -C %s diff) ──\n' "$ROOT" >&2
-      git -C "$ROOT" --no-pager diff -- '*.md' >&2
+    if [[ ${#changed[@]} -gt 0 ]]; then
+      printf '\n  ── live memory diff (this session) ──\n' >&2
+      git -C "$ROOT" --no-pager diff -- ${changed[@]+"${changed[@]}"} >&2
+      # brand-new files are invisible to plain diff; show their content too
+      for _f in ${changed[@]+"${changed[@]}"}; do
+        git -C "$ROOT" ls-files --error-unmatch "$_f" >/dev/null 2>&1 && continue
+        [[ -f "$ROOT/$_f" ]] || continue
+        printf '  ── new file: %s ──\n' "$_f" >&2
+        cat "$ROOT/$_f" >&2
+      done
+      printf '\n  commit these %s file(s) now? [y/N] ' "${#changed[@]}" >&2
+      local cans; read -r cans
+      if [[ "${cans:-n}" =~ ^[Yy]$ ]]; then
+        if git -C "$ROOT" add -- ${changed[@]+"${changed[@]}"} \
+           && git -C "$ROOT" commit -q -m "$SCOPE: session captures"; then
+          printf '  🧶 committed.\n' >&2
+        else
+          printf '  🧶 commit failed — check by hand: git -C %s status\n' "$ROOT" >&2
+        fi
+      fi
     fi
     if [[ "$prop_ok" -eq 1 ]]; then
       printf '\n  ── drafted proposal (%s) ──\n' "$proposal" >&2
@@ -242,8 +267,10 @@ post_session() {
     fi
     printf '\n' >&2
   else
-    printf '  🧶 left for later — grandma review %s, or git -C %s diff\n\n' "$SCOPE" "$ROOT" >&2
+    printf '  🧶 left for later — grandma review %s, or git -C %s diff\n' "$SCOPE" "$ROOT" >&2
   fi
+  [[ ${#stale[@]} -gt 0 ]] && printf '  🧶 %s earlier memory change(s) still uncommitted — review: git -C %s diff\n' "${#stale[@]}" "$ROOT" >&2
+  printf '\n' >&2
 }
 
 # background_distill / on_hangup — the ABRUPT-exit path. If the window is closed (SIGHUP) or
@@ -257,7 +284,7 @@ background_distill() {
   nohup "$ENGINE/lib/grandma-save.sh" "$SCOPE" ${RP_NAME:+"$RP_NAME"} --auto >/dev/null 2>&1 &
   disown 2>/dev/null || true
 }
-on_hangup() { background_distill; exit 129; }
+on_hangup() { rm -f "${PRE_DIRTY_SNAP:-}" 2>/dev/null; background_distill; exit 129; }
 
 # ---- parse args: grandma <sweater> [project] [task...] [--full] [--writing] ----
 # A single bare word right after the scope (no spaces, before any task words) is the project.
@@ -386,10 +413,11 @@ fi
 
 # Dry run: show what would launch, don't start Claude.
 if [[ "${GRANDMA_DRY_RUN:-0}" == "1" ]]; then
-  if [[ -f "$ENGINE/assets/grandma.gif" ]] && command -v imgcat >/dev/null 2>&1; then
-    echo "splash:       gif (assets/grandma.gif via imgcat)" >&2
+  splash_renderer="$(pick_mascot_renderer)"
+  if [[ -f "$ENGINE/assets/grandma.gif" && -n "$splash_renderer" ]]; then
+    echo "splash:       gif (assets/grandma.gif via $splash_renderer)" >&2
   else
-    echo "splash:       ascii granny (drop assets/grandma.gif for the gif)" >&2
+    echo "splash:       wordmark logo (this terminal has no image protocol)" >&2
   fi
   if [[ -n "$LAUNCH_DIR" ]]; then
     echo "mode:         KNOWN project '$RP_NAME' → cd $LAUNCH_DIR (its CLAUDE.md auto-loads)" >&2
@@ -459,6 +487,14 @@ fi
 dirty="$(git -C "$ROOT" status --porcelain -- '*.md' 2>/dev/null | wc -l | tr -d ' ')"
 if [[ "${dirty:-0}" -gt 0 ]]; then
   printf '  🧶 memory has %s uncommitted change(s) — review: git -C %s diff\n' "$dirty" "$ROOT" >&2
+fi
+
+# Fingerprint what is dirty NOW, so post_session can tell this session's captures from
+# older, already-reviewed diffs. Without this, every uncommitted file re-triggered the
+# end-of-session review prompt on every launch until it was committed.
+PRE_DIRTY_SNAP="$(mktemp "${TMPDIR:-/tmp}/grandma-predirty-XXXXXX" 2>/dev/null || true)"
+if [[ -n "$PRE_DIRTY_SNAP" ]]; then
+  dirty_md_files | while IFS= read -r _f; do md_fingerprint "$_f"; done > "$PRE_DIRTY_SNAP"
 fi
 
 # Watch notices: finished reports not yet read, and keep active watches ticking.
