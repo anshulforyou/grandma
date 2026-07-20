@@ -66,7 +66,7 @@ _grandma_complete() {
     COMPREPLY=( $(compgen -W "$(grandma completions __scopes 2>/dev/null)" -- "$cur") )
   elif [[ ${COMP_CWORD} -eq 2 ]]; then
     case "${COMP_WORDS[1]}" in
-      save|review|ingest|test)
+      save|review|ingest|test|search)
         COMPREPLY=( $(compgen -W "$(grandma completions __scopes 2>/dev/null)" -- "$cur") ) ;;
       watch)
         COMPREPLY=( $(compgen -W "$(grandma completions __watch_commands 2>/dev/null)" -- "$cur") ) ;;
@@ -98,7 +98,7 @@ _grandma_complete() {
     compadd -a scopes
   elif (( CURRENT == 3 )); then
     case "${words[2]}" in
-      save|review|ingest|test)
+      save|review|ingest|test|search)
         scopes=(${(f)"$(grandma completions __scopes 2>/dev/null)"})
         compadd -a scopes ;;
       watch)

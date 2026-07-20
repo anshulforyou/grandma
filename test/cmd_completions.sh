@@ -60,7 +60,7 @@ section "completions - subcommand routing"
 grandma() { "$GBIN" "$@"; }
 eval "$("$GBIN" completions bash)"
 
-for sub in save review ingest test; do
+for sub in save review ingest test search; do
   COMP_WORDS=(grandma "$sub" h); COMP_CWORD=2; COMPREPLY=()
   _grandma_complete
   # shellcheck disable=SC2034  # read by assert helpers from test/lib/assert.sh
@@ -103,6 +103,7 @@ if command -v zsh >/dev/null 2>&1; then
     }
     eval "$("$GBIN" completions zsh)"
     words=(grandma save h); CURRENT=3; _grandma_complete
+    words=(grandma search h); CURRENT=3; _grandma_complete
     words=(grandma watch s); CURRENT=3; _grandma_complete
   '
   assert_rc 0 "zsh subcommand completion runs"
