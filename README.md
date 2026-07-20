@@ -67,6 +67,17 @@ git clone https://github.com/anshulforyou/grandma && cd grandma && ./bin/grandma
 
 Requirements: [Claude Code](https://claude.com/claude-code), git, jq, python3. macOS or Linux (Windows via WSL). `grandma doctor` checks everything and tells you how to fix what is missing.
 
+## Update
+
+The engine is a git checkout, so updating is a fast-forward pull:
+
+```sh
+grandma update          # pull the latest engine, then show what changed
+grandma version         # what you are running right now
+```
+
+grandma tracks `master` (a rolling release). It never phones home: instead of checking a server, it prints one quiet line at launch when your engine has gone stale (more than a week since your last `grandma update`), nudging you to run it. Silence that with `GRANDMA_NO_UPDATE_CHECK=1`, or tune the window with `GRANDMA_UPDATE_STALE_DAYS`. Re-running the installer updates in place too.
+
 ### Tab completion
 
 Optional, and worth it. With it on, `grandma <TAB>` lists your sweaters, `grandma per<TAB>` completes the one you mean, and `grandma acme <TAB>` lists the projects under acme. Add one line to your shell rc:
@@ -132,7 +143,7 @@ Writes land as uncommitted diffs in your memory repo. `git diff` is your review 
 
 ### She survives the context window
 
-Long sessions hit Claude Code's compaction and normally lose their instructions. Grandma installs a hook that re-injects your memory the moment compaction happens, so hour six behaves like minute one. When you exit, grandma looks over the session right then and shows you what she noted — the live diffs plus a drafted proposal — and asks whether to review now or leave it. Nothing is applied without you. (Sessions you didn't start with grandma get the same distill quietly in the background, surfaced at your next launch.)
+Long sessions hit Claude Code's compaction, which normally drops the instructions grandma injected at launch. Two hooks cover this. The moment compaction happens, grandma re-injects your memory, so hour six behaves like minute one. And just before compaction, it checkpoints the working state of the current task (what you decided, what is done, what is next) and folds that back in too, so the session keeps the thread of its own work and not just your standing preferences. When you exit, grandma looks over the session right then and shows you what she noted, the live diffs plus a drafted proposal, and asks whether to review now or leave it. Nothing is applied without you. (Sessions you did not start with grandma get the same distill quietly in the background, surfaced at your next launch.)
 
 ### She watches for your blind spots
 
@@ -194,7 +205,7 @@ grandma knit                   coming next: share a project's memory with a team
   hooks (upstream issue), so the end-of-session distill only runs on Ctrl+D. Manual
   fallback always works: `grandma save <sweater>`.
 - Sweater names that collide with subcommands (`init`, `save`, `review`, `search`,
-  `ingest`, `watch`, `test`, `doctor`, `help`) are reserved.
+  `ingest`, `watch`, `test`, `doctor`, `update`, `version`, `help`) are reserved.
 - macOS is the daily-driven platform. Linux is CI-tested but younger: if something
   misbehaves, `grandma doctor` first, then an issue with its output.
 
