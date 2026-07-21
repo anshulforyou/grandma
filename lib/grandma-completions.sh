@@ -5,7 +5,8 @@
 # Completes the first word against your sweaters (plus the subcommands), and the second
 # word against the projects registered under the named sweater. The generated scripts do
 # NOT source the engine into your interactive shell (zsh breaks BASH_SOURCE and globbing);
-# they shell out to `grandma completions __scopes` / `__projects`, which run under bash.
+# they shell out to `grandma completions __scopes` / `__projects` / `__watch_commands`,
+# which run under bash.
 #
 # Usage:
 #   grandma completions bash      print the bash completion script
@@ -25,7 +26,8 @@ source "$ENGINE/lib/grandma-lib.sh"
 
 # First-word candidates that are NOT sweaters: the reserved subcommands (keep in sync with
 # bin/grandma). A sweater whose name collides with one of these is shadowed, as documented.
-SUBCOMMANDS="init save review search ingest watch test doctor completions help"
+SUBCOMMANDS="init save review search ingest watch test doctor completions update version help"
+WATCH_COMMANDS="start tick list status report finish notify-test install-agent"
 
 # _gc_scopes - completable first words: every sweater, then the subcommands.
 _gc_scopes() {
@@ -47,6 +49,11 @@ _gc_projects() {
   '
 }
 
+# _gc_watch_commands - emit the verbs accepted by `grandma watch`.
+_gc_watch_commands() {
+  printf '%s\n' $WATCH_COMMANDS
+}
+
 # _gc_emit_bash - the bash completion script (quoted heredoc: emitted verbatim).
 _gc_emit_bash() {
   cat <<'BASH'
@@ -60,7 +67,14 @@ _grandma_complete() {
   if [[ ${COMP_CWORD} -eq 1 ]]; then
     COMPREPLY=( $(compgen -W "$(grandma completions __scopes 2>/dev/null)" -- "$cur") )
   elif [[ ${COMP_CWORD} -eq 2 ]]; then
-    COMPREPLY=( $(compgen -W "$(grandma completions __projects "${COMP_WORDS[1]}" 2>/dev/null | cut -f1)" -- "$cur") )
+    case "${COMP_WORDS[1]}" in
+      save|review|ingest|test|search)
+        COMPREPLY=( $(compgen -W "$(grandma completions __scopes 2>/dev/null)" -- "$cur") ) ;;
+      watch)
+        COMPREPLY=( $(compgen -W "$(grandma completions __watch_commands 2>/dev/null)" -- "$cur") ) ;;
+      *)
+        COMPREPLY=( $(compgen -W "$(grandma completions __projects "${COMP_WORDS[1]}" 2>/dev/null | cut -f1)" -- "$cur") ) ;;
+    esac
   fi
   return 0
 }
@@ -76,23 +90,31 @@ _gc_emit_zsh() {
 # (needs compinit first:  autoload -Uz compinit && compinit)
 _grandma_complete() {
   local cur="${words[CURRENT]}"
+  local -a scopes watch_commands lines toks descs
   if [[ "$cur" == -* ]]; then
     compadd -- --full --writing
     return 0
   fi
   if (( CURRENT == 2 )); then
-    local -a scopes
     scopes=(${(f)"$(grandma completions __scopes 2>/dev/null)"})
     compadd -a scopes
   elif (( CURRENT == 3 )); then
-    local -a lines toks descs
-    lines=(${(f)"$(grandma completions __projects ${words[2]} 2>/dev/null)"})
-    local l
-    for l in $lines; do
-      toks+=("${l%%$'\t'*}")
-      descs+=("${l#*$'\t'}")
-    done
-    (( ${#toks} )) && compadd -d descs -a toks
+    case "${words[2]}" in
+      save|review|ingest|test|search)
+        scopes=(${(f)"$(grandma completions __scopes 2>/dev/null)"})
+        compadd -a scopes ;;
+      watch)
+        watch_commands=(${(f)"$(grandma completions __watch_commands 2>/dev/null)"})
+        compadd -a watch_commands ;;
+      *)
+        lines=(${(f)"$(grandma completions __projects ${words[2]} 2>/dev/null)"})
+        local l
+        for l in $lines; do
+          toks+=("${l%%$'\t'*}")
+          descs+=("${l#*$'\t'}")
+        done
+        (( ${#toks} )) && compadd -d descs -a toks ;;
+    esac
   fi
 }
 compdef _grandma_complete grandma
@@ -117,5 +139,6 @@ case "${1:-}" in
   fish)        _gc_emit_fish ;;
   __scopes)    _gc_scopes ;;
   __projects)  shift; _gc_projects "${1:-}" ;;
+  __watch_commands) _gc_watch_commands ;;
   *)           echo "usage: grandma completions <bash|zsh|fish>" >&2; exit 2 ;;
 esac

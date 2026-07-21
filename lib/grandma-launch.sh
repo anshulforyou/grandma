@@ -141,6 +141,27 @@ install_session_end_hook() {
     > "$cfg.tmp" 2>/dev/null && mv "$cfg.tmp" "$cfg" && GRANDMA_AUTOSAVE_INSTALLED=1
 }
 
+# Ensure a grandma-launched project has the PreCompact checkpoint hook (synchronous), so the
+# session's working state is captured just before Claude Code compacts and re-injected by the
+# rehydrate hook afterward. Idempotent. Skip with GRANDMA_NO_HOOK / GRANDMA_NO_AUTOSAVE /
+# GRANDMA_NO_CHECKPOINT. Timeout bounds how long compaction can wait on it.
+install_precompact_hook() {
+  local dir="$1" scope="$2" project="$3"
+  [[ "${GRANDMA_NO_HOOK:-0}" == "1" || "${GRANDMA_NO_AUTOSAVE:-0}" == "1" || "${GRANDMA_NO_CHECKPOINT:-0}" == "1" ]] && return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local cfg="$dir/.claude/settings.local.json"
+  local cmd="$ENGINE/lib/grandma-precompact.sh $scope $project"
+  local base present
+  base="$(cat "$cfg" 2>/dev/null || echo '{}')"
+  present="$(printf '%s' "$base" | jq -r --arg c "$cmd" \
+    '[.hooks.PreCompact[]? | .hooks[]? | .command] | map(. == $c) | any' 2>/dev/null || echo false)"
+  [[ "$present" == "true" ]] && return 0
+  mkdir -p "$dir/.claude"
+  printf '%s' "$base" | jq --arg c "$cmd" \
+    '.hooks = (.hooks // {}) | .hooks.PreCompact = ((.hooks.PreCompact // []) + [{"matcher":"","hooks":[{"type":"command","command":$c,"timeout":60}]}])' \
+    > "$cfg.tmp" 2>/dev/null && mv "$cfg.tmp" "$cfg" && GRANDMA_CHECKPOINT_INSTALLED=1
+}
+
 # Common parent folder of a scope's registered projects (for onboarding new projects).
 scope_working_root() {
   local reg="$1/projects.md"
@@ -407,8 +428,14 @@ if [[ "${GRANDMA_DRY_RUN:-0}" == "1" ]]; then
       echo "rehydrate:    would ensure SessionStart(compact) hook in $LAUNCH_DIR/.claude/settings.local.json" >&2
       if [[ "${GRANDMA_NO_AUTOSAVE:-0}" == "1" ]]; then
         echo "autosave:     skipped (GRANDMA_NO_AUTOSAVE=1)" >&2
+        echo "checkpoint:   skipped (GRANDMA_NO_AUTOSAVE=1)" >&2
       else
         echo "autosave:     would ensure SessionEnd(async) auto-distill hook (proposal on exit)" >&2
+        if [[ "${GRANDMA_NO_CHECKPOINT:-0}" == "1" ]]; then
+          echo "checkpoint:   skipped (GRANDMA_NO_CHECKPOINT=1)" >&2
+        else
+          echo "checkpoint:   would ensure PreCompact hook (session working-state saved before compaction, re-injected after)" >&2
+        fi
       fi
     fi
   fi
@@ -430,7 +457,8 @@ fi
 if [[ -n "$LAUNCH_DIR" ]]; then
   install_rehydrate_hook "$LAUNCH_DIR" "$SCOPE"
   install_session_end_hook "$LAUNCH_DIR" "$SCOPE" "$RP_NAME"
-  [[ "${GRANDMA_HOOK_INSTALLED:-0}" == "1" || "${GRANDMA_AUTOSAVE_INSTALLED:-0}" == "1" ]] && \
+  install_precompact_hook "$LAUNCH_DIR" "$SCOPE" "$RP_NAME"
+  [[ "${GRANDMA_HOOK_INSTALLED:-0}" == "1" || "${GRANDMA_AUTOSAVE_INSTALLED:-0}" == "1" || "${GRANDMA_CHECKPOINT_INSTALLED:-0}" == "1" ]] && \
     printf '  + installed grandma hooks (%s/.claude/settings.local.json)\n' "$RP_NAME" >&2
 fi
 
@@ -454,6 +482,9 @@ if compgen -G "$ROOT/proposals/${SCOPE}*.md" >/dev/null 2>&1; then
     printf '  📝 %s pending memory proposal(s) for %s — run: grandma review %s\n' "$n" "$SCOPE" "$SCOPE" >&2
   fi
 fi
+
+# A quiet nudge when the engine has gone stale (no network; silence with GRANDMA_NO_UPDATE_CHECK=1).
+grandma_update_notice
 
 # Notice uncommitted memory changes (in-flight captures land as diffs you review).
 dirty="$(git -C "$ROOT" status --porcelain -- '*.md' 2>/dev/null | wc -l | tr -d ' ')"

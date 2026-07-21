@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `grandma update` / `grandma version`: update the engine in place with a fast-forward pull
+  (never forces), and print the running version (the `VERSION` file plus the commit). No server
+  and no telemetry: instead of checking anywhere, grandma prints one quiet launch line when your
+  engine has gone stale (more than a week since your last update). Silence with
+  `GRANDMA_NO_UPDATE_CHECK=1`; tune with `GRANDMA_UPDATE_STALE_DAYS`.
 - `grandma search [sweater] <query>`: read-only literal grep across your memory, in
   `file:line:text` form. Uses ripgrep when present and grep otherwise (no new hard
   dependency), and both engines are made to agree. Exit 0/1/2 follows grep's convention.

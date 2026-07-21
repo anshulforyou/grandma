@@ -2,6 +2,8 @@
 proposals/
 watches/
 .distill/
+.update-state
+.update-nudged
 *.zip
 *.har
 .DS_Store

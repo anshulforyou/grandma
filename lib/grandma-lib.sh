@@ -169,9 +169,80 @@ claude_proj_dir() { printf '%s/.claude/projects/%s' "$HOME" "$(printf '%s' "$1" 
 list_scopes() {
   local d n
   for d in "$ROOT"/*/; do
-    n="$(basename "$d")"; [[ "$n" == "global" ]] && continue
+    n="$(basename "$d")"
+    # global is not a sweater; proposals/, watches/, .distill/ are gitignored scratch, not
+    # memory. A proposal carries scope: frontmatter, so the filter below would otherwise
+    # enumerate proposals/ as a scope the moment one exists (and trip the core-purity check).
+    case "$n" in global|proposals|watches|.distill) continue ;; esac
     if grep -lqE '^scope:' "$d"/*.md 2>/dev/null; then echo "$n"; fi
   done
+}
+
+# extract_readable_transcript <transcript.jsonl> <out.md> — write a readable USER/ASSISTANT
+# text log (tool noise dropped, only text turns kept) that a headless model can read. Shared
+# by the end-of-session distiller and the pre-compaction checkpoint.
+extract_readable_transcript() {
+  jq -r '
+    select(.type=="user" or .type=="assistant")
+    | (.message.role // .type) as $role
+    | (.message.content) as $c
+    | if ($c|type)=="string" then "\($role|ascii_upcase): \($c)\n"
+      else ($c | map(select(.type=="text") | .text) | join("\n")) as $t
+           | if ($t|length)>0 then "\($role|ascii_upcase): \($t)\n" else empty end
+      end
+  ' "$1" > "$2"
+}
+
+# ---- engine version + update nudge ----
+# The engine is a git checkout (install.sh clones it). These read its version and, at launch,
+# nudge once when it has gone stale. No network: staleness is measured from the last
+# `grandma update`, so grandma never phones anywhere on its own. Callers must have ENGINE/ROOT set.
+
+# engine_version — the VERSION file, plus the short commit when this is a git checkout, so a
+# support request can pin the exact code the user is running.
+engine_version() {
+  local v="unknown" sha
+  [[ -f "$ENGINE/VERSION" ]] && v="$(head -n1 "$ENGINE/VERSION" | tr -d '[:space:]')"
+  sha="$(git -C "$ENGINE" rev-parse --short HEAD 2>/dev/null || true)"
+  if [[ -n "$sha" ]]; then printf '%s (%s)' "$v" "$sha"; else printf '%s' "$v"; fi
+}
+
+# engine_is_git — is the engine an updatable git checkout (vs a bare copy)?
+engine_is_git() { git -C "$ENGINE" rev-parse --git-dir >/dev/null 2>&1; }
+
+# update_state_file — per-user marker holding the epoch of the last successful `grandma update`.
+update_state_file() { printf '%s/.update-state' "$ROOT"; }
+
+# note_engine_updated — stamp "now" so the launch nudge resets after an update. Best-effort:
+# a missing or unwritable home is fine (the group redirect swallows even the redirect error).
+note_engine_updated() {
+  [[ -d "$ROOT" ]] || return 0
+  { date +%s > "$(update_state_file)"; } 2>/dev/null || true
+}
+
+# engine_age_days — whole days since the last `grandma update`, or since the engine's HEAD
+# commit if it was never updated here. No network. Prints 0 when it cannot tell.
+engine_age_days() {
+  local base now sf; sf="$(update_state_file)"
+  if [[ -f "$sf" ]]; then base="$(head -n1 "$sf" 2>/dev/null | tr -cd '0-9')"
+  else base="$(git -C "$ENGINE" log -1 --format=%ct 2>/dev/null | tr -cd '0-9')"; fi
+  now="$(date +%s 2>/dev/null | tr -cd '0-9')"
+  [[ -n "$base" && -n "$now" && "$base" -gt 0 && "$now" -ge "$base" ]] 2>/dev/null || { echo 0; return; }
+  echo $(( (now - base) / 86400 ))
+}
+
+# grandma_update_notice — one quiet launch line when the engine has gone stale, at most once a
+# day. Silence entirely with GRANDMA_NO_UPDATE_CHECK=1; tune the threshold with
+# GRANDMA_UPDATE_STALE_DAYS (default 7). Never blocks and never touches the network.
+grandma_update_notice() {
+  [[ "${GRANDMA_NO_UPDATE_CHECK:-0}" == "1" ]] && return 0
+  engine_is_git || return 0
+  local days; days="$(engine_age_days)"
+  [[ "${days:-0}" -ge "${GRANDMA_UPDATE_STALE_DAYS:-7}" ]] 2>/dev/null || return 0
+  local marker today; marker="$ROOT/.update-nudged"; today="$(date +%Y%m%d 2>/dev/null)"
+  [[ -f "$marker" && "$(cat "$marker" 2>/dev/null)" == "$today" ]] && return 0
+  printf '%s' "$today" > "$marker" 2>/dev/null || true
+  printf '  🧶 your grandma engine is %s days old — run: grandma update\n' "$days" >&2
 }
 
 # ---- portability helpers (BSD/macOS vs GNU/Linux) ----
