@@ -34,6 +34,23 @@ capture env GRANDMA_DRY_RUN=1 "$GBIN" globex nope-not-real
 assert_rc 0 "grandma globex <unknown> runs"
 assert_contains "ONBOARD (project 'nope-not-real' unknown in globex)" "routes unknown project to onboard"
 
+section "resolve_project — the best match wins over a weaker one (rainforest vs the longer project)"
+# A project registered as 'rainforest-midnight (Project Midnight)' would not open with
+# `grandma <scope> rainforest-midnight`: the query also matched the shorter 'rainforest'
+# (a fragment of the query), so both collided into AMBIG. Ranked matching must let the
+# project whose name STARTS WITH the query win. Fails before the ranked fix, passes after.
+PJ="$TMP/pj"; mkdir -p "$PJ/rf" "$PJ/rfm"
+printf '## rainforest\n- source: %s/rf/CLAUDE.md\n## rainforest-midnight (Project Midnight)\n- source: %s/rfm/CLAUDE.md\n' "$PJ" "$PJ" > "$PJ/projects.md"
+rp() { capture env bash -c '. "'"$ENGINE"'/lib/grandma-lib.sh"; ROOT="'"$TMP"'"; resolve_project "'"$PJ"'" "'"$1"'"; echo "STATUS=$RP_STATUS NAME=$RP_NAME"'; }
+rp "rainforest-midnight"
+assert_rc 0 "resolve_project runs on overlapping project names"
+assert_contains "STATUS=OK" "the query is not ambiguous when one project clearly wins"
+assert_contains "NAME=rainforest-midnight (Project Midnight)" "resolves to the project whose name starts with the query, not the fragment match"
+rp "rainforest"
+assert_contains "NAME=rainforest" "an exact name still resolves to itself"
+rp "rain"
+assert_contains "STATUS=AMBIG" "a genuinely ambiguous prefix still asks you to be specific"
+
 section "launch — no scope, non-tty stdin -> usage (not a hang)"
 capture env GRANDMA_DRY_RUN=1 "$GBIN" </dev/null
 assert_rc 2 "bare grandma on a pipe exits with usage"
