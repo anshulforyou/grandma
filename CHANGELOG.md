@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `grandma watch`: tool-usage lens. Metrics now count calls per tool name, not just the
+  total, so `grandma watch status` shows your top tools live and the final report can
+  reason about the mix. Mechanical (python over the transcript), no model call.
+
 - `grandma update` / `grandma version`: update the engine in place with a fast-forward pull
   (never forces), and print the running version (the `VERSION` file plus the commit). No server
   and no telemetry: instead of checking anywhere, grandma prints one quiet launch line when your

@@ -49,6 +49,37 @@ capture env "$GBIN" watch status
 assert_rc 0 "watch status runs"
 assert_contains "sessions measured" "status reports progress"
 
+section "watch — tool lens counts calls per tool name"
+# A second session with two Edit calls, so the breakdown has something to rank.
+sess2="$HOME/.claude/projects/-tmp-proj-two/sess2.jsonl"
+seed_claude_project "$HOME" "-tmp-proj-two" "sess2" >/dev/null
+cat >> "$sess2" <<'JSONL'
+{"type":"assistant","timestamp":"2026-06-15T11:00:00.000Z","message":{"role":"assistant","model":"claude-test","usage":{},"content":[{"type":"tool_use","name":"Edit","input":{}},{"type":"tool_use","name":"Edit","input":{}}]}}
+JSONL
+capture env PATH="/usr/bin:/bin" "$GBIN" watch tick
+assert_rc 0 "tick with a second session runs"
+# shellcheck disable=SC2034  # LAST_OUT is read by assert_* (sourced from lib/assert.sh)
+LAST_OUT="$(cat "$GRANDMA_HOME/watches/$slug/data/metrics.jsonl")"
+assert_contains '"Bash": 1' "records the per-tool name, not just the total"
+assert_contains '"Edit": 2' "counts repeated calls to the same tool"
+
+capture env "$GBIN" watch status
+assert_rc 0 "status runs with tool counts"
+assert_contains "top tools: Bash=2 Edit=2" "status ranks tools by call count"
+
+section "watch — report synthesis feeds the tool lens to the model, guard intact"
+FB="$TMP/fakebin"; make_fake_claude "$FB" >/dev/null
+capture env PATH="$FB:/usr/bin:/bin" "$GBIN" watch finish "$slug"
+assert_rc 0 "finish synthesizes a report"
+assert_file "$GRANDMA_HOME/watches/$slug/.work/metrics-summary.md" "writes the metrics summary"
+# shellcheck disable=SC2034  # LAST_OUT is read by assert_* (sourced from lib/assert.sh)
+LAST_OUT="$(cat "$GRANDMA_HOME/watches/$slug/.work/metrics-summary.md")"
+assert_contains "tool usage (all sessions" "summary carries the tool breakdown"
+assert_contains "Bash=2 Edit=2" "summary lists the ranked tools"
+# shellcheck disable=SC2034
+LAST_OUT="$(cat "$GRANDMA_HOME/watches/$slug/report.md")"
+assert_contains "distilling=1" "synthesis child inherits the recursion guard"
+
 section "watch — notify-test delivers via a backend (issue #4)"
 # Shadow osascript with a failing stub (neutralizes the real macOS notifier so the suite
 # never pops a live notification) and provide a fake notify-send that just succeeds.

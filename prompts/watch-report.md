@@ -11,6 +11,7 @@ Write `report.md` content with exactly these sections:
    the conclusion.
 2. **The numbers** — the handful of quantitative facts that matter (from the metrics),
    in a small table. Trends over the window if visible (e.g. sessions getting longer).
+   Include the tool mix when it bears on the question (e.g. mostly Bash, little Read).
 3. **Patterns found** — the recurring behaviors behind the numbers, most impactful
    first. Each pattern: what happens, evidence (which sessions, how often), cost.
 4. **What to change** — concrete, testable recommendations ranked by expected impact.

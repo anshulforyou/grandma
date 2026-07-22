@@ -86,6 +86,26 @@ import json,sys
 d=json.load(open('$1')); d['$2']=$3
 json.dump(d,open('$1','w'),indent=1)" 2>/dev/null; }
 
+# top tools across a metrics.jsonl, as "Bash=41 Edit=12 Read=9" (empty if none counted).
+# Rows written before the tool lens have no "tools" key and are simply skipped.
+top_tools() { # metrics.jsonl [limit]
+  [[ -f "$1" ]] || return 0
+  python3 - "$1" "${2:-8}" <<'PY'
+import json, sys
+path, limit = sys.argv[1], int(sys.argv[2])
+counts = {}
+for line in open(path):
+    line = line.strip()
+    if not line: continue
+    try: r = json.loads(line)
+    except Exception: continue
+    for name, n in (r.get("tools") or {}).items():
+        counts[name] = counts.get(name, 0) + n
+top = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]
+print(" ".join(f"{name}={n}" for name, n in top))
+PY
+}
+
 # transcripts touched within the watch window, optional scope substring filter
 find_transcripts() { # start_epoch scope_filter
   local start="$1" scope="$2" f
@@ -149,7 +169,7 @@ for p in paths:
     m = {"session": sid, "mtime": mtime, "project": os.path.basename(os.path.dirname(p)),
          "user_turns": 0, "assistant_turns": 0, "tool_calls": 0, "compactions": 0,
          "in_tok": 0, "out_tok": 0, "cache_read": 0, "cache_create": 0,
-         "models": [], "t0": None, "t1": None}
+         "models": [], "tools": {}, "t0": None, "t1": None}
     models = set()
     try:
         for line in open(p, errors="replace"):
@@ -176,6 +196,8 @@ for p in paths:
                 for b in (msg.get("content") or []):
                     if isinstance(b, dict) and b.get("type") == "tool_use":
                         m["tool_calls"] += 1
+                        name = b.get("name") or "?"
+                        m["tools"][name] = m["tools"].get(name, 0) + 1
     except Exception:
         continue
     m["models"] = sorted(models)
@@ -258,7 +280,7 @@ $(cat "$dir/.work/batch.md")" \
 
   # ---- 3. deadline passed -> synthesize the report ----
   if [[ "$now" -ge "$end" && ! -f "$dir/report.md" && -n "${CB:-}" ]]; then
-    python3 - "$dir" > "$dir/.work/metrics-summary.md" <<'PY'
+    { python3 - "$dir" <<'PY'
 import json, os, sys
 d = sys.argv[1]
 rows = [json.loads(l) for l in open(os.path.join(d, "data", "metrics.jsonl")) if l.strip()]
@@ -277,6 +299,11 @@ for r in rows:
           f"{r.get('compactions')} | {r.get('in_tok')} | {r.get('out_tok')} | {r.get('cache_read')} | "
           f"{','.join(r.get('models') or [])}")
 PY
+      echo
+      echo "tool usage (all sessions, most used first):"
+      local tools; tools="$(top_tools "$dir/data/metrics.jsonl" 20)"
+      echo "${tools:-(none counted)}"
+    } > "$dir/.work/metrics-summary.md"
     local RSYS
     RSYS="$(cat "$ENGINE/prompts/watch-report.md")
 
@@ -326,6 +353,8 @@ cmd_status() {
     echo "  question:  $(watch_field "$sj" question)"
     echo "  window:    $(epoch_date "$(watch_field "$sj" start)") -> $(epoch_date "$(watch_field "$sj" end)")"
     echo "  progress:  $n sessions measured, $dn digested"
+    local tools; tools="$(top_tools "$sdir/data/metrics.jsonl")"
+    [[ -n "$tools" ]] && echo "  top tools: $tools"
     [[ -f "$sdir/report.md" ]] && echo "  report:    $sdir/report.md"
   done
   return 0
