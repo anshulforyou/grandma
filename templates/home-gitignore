@@ -4,6 +4,9 @@ watches/
 .distill/
 .update-state
 .update-nudged
+.knit/
+.knit-pending
+.knit-checked
 *.zip
 *.har
 .DS_Store

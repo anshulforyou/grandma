@@ -19,7 +19,7 @@ ASSEMBLE="$ENGINE/lib/assemble.sh"
 # scripts, and the generic prompts that run across all scopes.
 CORE=(lib/grandma-launch.sh lib/grandma-lib.sh lib/grandma-rehydrate.sh lib/grandma-session-end.sh \
       lib/grandma-save.sh lib/grandma-ingest.sh lib/grandma-review.sh lib/grandma-search.sh \
-      lib/grandma-update.sh lib/assemble.sh \
+      lib/grandma-update.sh lib/grandma-knit.sh lib/assemble.sh \
       prompts/distiller.md prompts/onboard.md prompts/ingest.md prompts/new-scope.md \
       prompts/capture.md lib/grandma-watch.sh prompts/watch-digest.md prompts/watch-report.md)
 
@@ -181,6 +181,23 @@ up="/Use""rs/"
 hits2="$(grep -rn "$up" "$ENGINE/lib" "$ENGINE/prompts" "$ENGINE/bin" "$ENGINE/templates" 2>/dev/null | grep -v 'grandma-test.sh' || true)"
 [[ -n "$hits2" ]] && { bad "hardcoded user path in engine: $(echo "$hits2" | head -3)"; pd_ok=0; }
 [[ "$pd_ok" == "1" ]] && pass "engine free of personal names and user paths"
+
+# ---- 13. Knit is guarded: nothing leaves without a strip, a look, and a yes ----
+echo "== 13. knit guards (share is stripped, confirmed, and never blocks launch) =="
+kn_ok=1
+[[ -x "$ENGINE/lib/grandma-knit.sh" ]] || { bad "grandma-knit.sh missing or not executable"; kn_ok=0; }
+grep -q 'strip_personal' "$ENGINE/lib/grandma-knit.sh" 2>/dev/null || { bad "knit share does not strip the personal scope"; kn_ok=0; }
+grep -q 'poll.lock' "$ENGINE/lib/grandma-knit.sh" 2>/dev/null || { bad "knit poll has no lockfile (a stalled poll would spawn siblings)"; kn_ok=0; }
+grep -q 'run_bounded' "$ENGINE/lib/grandma-knit.sh" 2>/dev/null || { bad "knit poll does not cap its network call"; kn_ok=0; }
+grep -q 'GRANDMA_NO_KNIT_CHECK' "$ENGINE/lib/grandma-lib.sh" 2>/dev/null || { bad "the knit launch banner has no opt-out"; kn_ok=0; }
+grep -q 'grandma_knit_notice' "$ENGINE/lib/grandma-launch.sh" 2>/dev/null || { bad "launch does not surface waiting knit shares"; kn_ok=0; }
+# The ignore rule only has to hold once knit has actually been used: a home created before
+# knit shipped has no .knit/ line and no .knit dir either, and the share path adds the rule
+# before it writes the first clone.
+if [[ "$HOME_OK" == "1" && -d "$ROOT/.knit" ]]; then
+  grep -q '^.knit/' "$ROOT/.gitignore" 2>/dev/null || { bad ".knit/ not gitignored in memory home (share clones would land in memory history)"; kn_ok=0; }
+fi
+[[ "$kn_ok" == "1" ]] && pass "knit guarded (strip, lock, bounded poll, opt-out, wired, gitignored)"
 
 echo
 if [[ "$fail" == "0" ]]; then echo "grandma-test: ALL PASS"; else echo "grandma-test: FAILURES ABOVE"; fi

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- `grandma knit`: the sharing phase, first cut. `knit share <sweater> <project>` packages your
+  memory of one project, strips the personal scope out of it, shows you the exact payload, and
+  (only after you say yes) pushes it to a private `grandma-knit-<project>` repo under your own
+  GitHub, inviting the teammates you name. On their side, the invitation shows up as one line at
+  launch, and `grandma knit pull` accepts it and turns the share into a normal memory proposal
+  they review with `grandma review`. Nothing merges by itself. No GitHub, or no `gh`? `--file`
+  writes the same bundle to disk and `knit pull --file` reads it back. The launch check reads a
+  cache refreshed by a detached, lock-guarded, time-capped poll, so it never waits on the
+  network and a failed call never reads as "nothing waiting". Opt out with
+  `GRANDMA_NO_KNIT_CHECK=1`; tune with `GRANDMA_KNIT_POLL_HOURS`.
+
 - `grandma update` / `grandma version`: update the engine in place with a fast-forward pull
   (never forces), and print the running version (the `VERSION` file plus the commit). No server
   and no telemetry: instead of checking anywhere, grandma prints one quiet launch line when your

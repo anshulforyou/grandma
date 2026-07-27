@@ -26,8 +26,9 @@ source "$ENGINE/lib/grandma-lib.sh"
 
 # First-word candidates that are NOT sweaters: the reserved subcommands (keep in sync with
 # bin/grandma). A sweater whose name collides with one of these is shadowed, as documented.
-SUBCOMMANDS="init save review search ingest watch test doctor completions update version help"
+SUBCOMMANDS="init save review search ingest watch knit test doctor completions update version help"
 WATCH_COMMANDS="start tick list status report finish notify-test install-agent"
+KNIT_COMMANDS="share pull list"
 
 # _gc_scopes - completable first words: every sweater, then the subcommands.
 _gc_scopes() {
@@ -54,6 +55,12 @@ _gc_watch_commands() {
   printf '%s\n' $WATCH_COMMANDS
 }
 
+# _gc_knit_commands - emit the verbs accepted by `grandma knit` (poll is internal, so it is
+# deliberately not completable).
+_gc_knit_commands() {
+  printf '%s\n' $KNIT_COMMANDS
+}
+
 # _gc_emit_bash - the bash completion script (quoted heredoc: emitted verbatim).
 _gc_emit_bash() {
   cat <<'BASH'
@@ -72,9 +79,15 @@ _grandma_complete() {
         COMPREPLY=( $(compgen -W "$(grandma completions __scopes 2>/dev/null)" -- "$cur") ) ;;
       watch)
         COMPREPLY=( $(compgen -W "$(grandma completions __watch_commands 2>/dev/null)" -- "$cur") ) ;;
+      knit)
+        COMPREPLY=( $(compgen -W "$(grandma completions __knit_commands 2>/dev/null)" -- "$cur") ) ;;
       *)
         COMPREPLY=( $(compgen -W "$(grandma completions __projects "${COMP_WORDS[1]}" 2>/dev/null | cut -f1)" -- "$cur") ) ;;
     esac
+  elif [[ ${COMP_CWORD} -eq 3 && "${COMP_WORDS[1]}" == "knit" && "${COMP_WORDS[2]}" == "share" ]]; then
+    COMPREPLY=( $(compgen -W "$(grandma completions __scopes 2>/dev/null)" -- "$cur") )
+  elif [[ ${COMP_CWORD} -eq 4 && "${COMP_WORDS[1]}" == "knit" && "${COMP_WORDS[2]}" == "share" ]]; then
+    COMPREPLY=( $(compgen -W "$(grandma completions __projects "${COMP_WORDS[3]}" 2>/dev/null | cut -f1)" -- "$cur") )
   fi
   return 0
 }
@@ -90,12 +103,15 @@ _gc_emit_zsh() {
 # (needs compinit first:  autoload -Uz compinit && compinit)
 _grandma_complete() {
   local cur="${words[CURRENT]}"
-  local -a scopes watch_commands lines toks descs
+  local -a scopes watch_commands knit_commands lines toks descs
   if [[ "$cur" == -* ]]; then
     compadd -- --full --writing
     return 0
   fi
   if (( CURRENT == 2 )); then
+    scopes=(${(f)"$(grandma completions __scopes 2>/dev/null)"})
+    compadd -a scopes
+  elif (( CURRENT == 4 )) && [[ "${words[2]}" == "knit" && "${words[3]}" == "share" ]]; then
     scopes=(${(f)"$(grandma completions __scopes 2>/dev/null)"})
     compadd -a scopes
   elif (( CURRENT == 3 )); then
@@ -106,6 +122,9 @@ _grandma_complete() {
       watch)
         watch_commands=(${(f)"$(grandma completions __watch_commands 2>/dev/null)"})
         compadd -a watch_commands ;;
+      knit)
+        knit_commands=(${(f)"$(grandma completions __knit_commands 2>/dev/null)"})
+        compadd -a knit_commands ;;
       *)
         lines=(${(f)"$(grandma completions __projects ${words[2]} 2>/dev/null)"})
         local l
@@ -129,7 +148,9 @@ _gc_emit_fish() {
 complete -c grandma -f
 complete -c grandma -l full -l writing
 complete -c grandma -n 'test (count (commandline -opc)) -eq 1' -a '(grandma completions __scopes 2>/dev/null)'
-complete -c grandma -n 'test (count (commandline -opc)) -eq 2' -a '(grandma completions __projects (commandline -opc)[2] 2>/dev/null)'
+complete -c grandma -n 'test (count (commandline -opc)) -eq 2; and test (commandline -opc)[2] = knit' -a '(grandma completions __knit_commands 2>/dev/null)'
+complete -c grandma -n 'test (count (commandline -opc)) -eq 2; and test (commandline -opc)[2] != knit' -a '(grandma completions __projects (commandline -opc)[2] 2>/dev/null)'
+complete -c grandma -n 'test (count (commandline -opc)) -eq 3; and test (commandline -opc)[2] = knit; and test (commandline -opc)[3] = share' -a '(grandma completions __scopes 2>/dev/null)'
 FISH
 }
 
@@ -140,5 +161,6 @@ case "${1:-}" in
   __scopes)    _gc_scopes ;;
   __projects)  shift; _gc_projects "${1:-}" ;;
   __watch_commands) _gc_watch_commands ;;
+  __knit_commands)  _gc_knit_commands ;;
   *)           echo "usage: grandma completions <bash|zsh|fish>" >&2; exit 2 ;;
 esac

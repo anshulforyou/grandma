@@ -14,6 +14,7 @@
 #   grandma search [sweater] <query>   grep across your memory
 #   grandma ingest [sweater] [--root]  catalog a folder of projects into a sweater
 #   grandma watch <start|status|...>   analysis campaigns over your sessions
+#   grandma knit <share|pull|list>     share a project's memory with a teammate
 #   grandma test [sweater]             verify the context-integrity invariants
 #   grandma doctor                     check dependencies and memory-home health
 #   grandma completions <bash|zsh|fish> print the shell tab-completion script
@@ -35,10 +36,11 @@ case "$sub" in
   search)       shift; exec "$ENGINE/lib/grandma-search.sh" "$@" ;;
   ingest)       shift; exec "$ENGINE/lib/grandma-ingest.sh" "$@" ;;
   watch)        shift; exec "$ENGINE/lib/grandma-watch.sh" "$@" ;;
+  knit)         shift; exec "$ENGINE/lib/grandma-knit.sh" "$@" ;;
   test)         shift; exec "$ENGINE/lib/grandma-test.sh" "$@" ;;
   completions)  shift; exec "$ENGINE/lib/grandma-completions.sh" "$@" ;;
   update)       shift; exec "$ENGINE/lib/grandma-update.sh" "$@" ;;
   version|--version|-v) exec "$ENGINE/lib/grandma-update.sh" version ;;
-  help|-h|--help) sed -n '3,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  help|-h|--help) sed -n '3,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *)            exec "$ENGINE/lib/grandma-launch.sh" "$@" ;;
 esac

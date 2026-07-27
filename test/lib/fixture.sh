@@ -64,6 +64,72 @@ make_fixture_home() {
   ) >/dev/null 2>&1
 }
 
+# make_fake_gh <bindir> <fake_github_dir> <login> — write a `gh` shim that stands in for GitHub
+# with a folder of BARE git repos, so the knit share/pull round trip runs end to end with no
+# network and no production backdoor (the engine only ever calls real gh verbs).
+#   gh auth status                                  -> ok
+#   gh api user --jq .login                         -> <login>
+#   gh api /user/repository_invitations [--jq ...]  -> the JSON in <fake_github_dir>/invitations.json
+#   gh api --method PATCH /user/repository_invitations/<id> -> records the id in accepted.log
+#   gh api --method PUT repos/<o>/<r>/collaborators/<u>     -> records the invite in invites.log
+#   gh repo view <owner>/<name>                     -> 0 only if the bare repo exists
+#   gh repo create <owner>/<name> --private         -> git init --bare
+#   gh repo clone <owner>/<name> <dir>              -> git clone from the bare repo
+# Set GH_FAKE_ROOT=<fake_github_dir> in the environment of anything using this shim.
+make_fake_gh() {
+  local dir="$1" ghroot="$2" login="$3"
+  mkdir -p "$dir" "$ghroot"
+  printf '[]\n' > "$ghroot/invitations.json"
+  cat > "$dir/gh" <<SHIM
+#!/usr/bin/env bash
+R="\${GH_FAKE_ROOT:-$ghroot}"
+LOGIN="\${GH_FAKE_LOGIN:-$login}"
+case "\$1 \${2:-}" in
+  "auth status") exit 0 ;;
+esac
+if [ "\$1" = "api" ]; then
+  shift
+  method=GET; target=""; jqexpr=""
+  while [ \$# -gt 0 ]; do
+    case "\$1" in
+      --method) method="\$2"; shift 2 ;;
+      --jq) jqexpr="\$2"; shift 2 ;;
+      -f) shift 2 ;;
+      *) [ -z "\$target" ] && target="\$1"; shift ;;
+    esac
+  done
+  case "\$method:\$target" in
+    GET:user) [ "\$jqexpr" = ".login" ] && echo "\$LOGIN" || echo "{\"login\":\"\$LOGIN\"}"; exit 0 ;;
+    GET:/user/repository_invitations)
+      if [ -n "\$jqexpr" ]; then jq -r "\$jqexpr" < "\$R/invitations.json"; else cat "\$R/invitations.json"; fi; exit 0 ;;
+    PATCH:/user/repository_invitations/*)
+      echo "\${target##*/}" >> "\$R/accepted.log"; exit 0 ;;
+    PUT:repos/*/collaborators/*)
+      echo "\$target" >> "\$R/invites.log"; exit 0 ;;
+  esac
+  exit 1
+fi
+if [ "\$1" = "repo" ]; then
+  case "\$2" in
+    view)   [ -d "\$R/\$3.git" ] && exit 0 || exit 1 ;;
+    create) mkdir -p "\$(dirname "\$R/\$3.git")" && git init -q --bare "\$R/\$3.git" && exit 0 || exit 1 ;;
+    clone)  git clone -q "\$R/\$3.git" "\$4" 2>/dev/null && exit 0 || exit 1 ;;
+  esac
+fi
+exit 1
+SHIM
+  chmod +x "$dir/gh"
+  printf '%s' "$dir/gh"
+}
+
+# fake_gh_invitation <fake_github_dir> <id> <inviter> <full_name> — queue a pending repository
+# invitation for the shim to serve (the shape `gh api /user/repository_invitations` returns).
+fake_gh_invitation() {
+  local ghroot="$1" id="$2" inviter="$3" full="$4"
+  printf '[{"id":%s,"inviter":{"login":"%s"},"repository":{"name":"%s","full_name":"%s"}}]\n' \
+    "$id" "$inviter" "${full#*/}" "$full" > "$ghroot/invitations.json"
+}
+
 # make_fake_transcript <path> — a minimal Claude .jsonl that both save.sh (jq) and watch.sh
 # (python metrics) parse: 2 user turns, 1 assistant turn with usage + a tool_use, timestamps.
 make_fake_transcript() {

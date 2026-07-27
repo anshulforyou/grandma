@@ -257,6 +257,40 @@ grandma_update_notice() {
   printf '  🧶 your grandma engine is %s days old — run: grandma update\n' "$days" >&2
 }
 
+# ---- knit: the shared-memory launch banner ----
+# A teammate sharing their project memory shows up as a GitHub repo invitation. Checking for
+# one means a network call, and launch must never wait on the network — so the launcher reads
+# a CACHE and, when that cache has gone stale, kicks off a detached refresh for NEXT time.
+# Same shape as the watch tick: print instantly from disk, refresh in the background.
+# Silence it entirely with GRANDMA_NO_KNIT_CHECK=1; tune with GRANDMA_KNIT_POLL_HOURS.
+
+knit_pending_file() { printf '%s/.knit-pending' "$ROOT"; }
+knit_checked_file() { printf '%s/.knit-checked' "$ROOT"; }
+
+# grandma_knit_notice — one line per waiting share, then a background refresh if the cache is
+# stale. Always returns 0: no gh, no network and no memory home are all normal states here.
+grandma_knit_notice() {
+  [[ "${GRANDMA_NO_KNIT_CHECK:-0}" == "1" ]] && return 0
+  local pf cf line now last age
+  pf="$(knit_pending_file)"
+  if [[ -s "$pf" ]]; then
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && printf '  🧶 %s\n' "$line" >&2
+    done < "$pf"
+  fi
+  command -v gh >/dev/null 2>&1 || return 0
+  now="$(date +%s 2>/dev/null | tr -cd '0-9')"; [[ -n "$now" ]] || return 0
+  age=$(( ${GRANDMA_KNIT_POLL_HOURS:-8} * 3600 ))
+  cf="$(knit_checked_file)"
+  if [[ -f "$cf" ]]; then
+    last="$(head -n1 "$cf" 2>/dev/null | tr -cd '0-9')"
+    [[ -n "$last" && $((now - last)) -lt "$age" ]] 2>/dev/null && return 0
+  fi
+  nohup "$ENGINE/lib/grandma-knit.sh" poll >/dev/null 2>&1 &
+  disown 2>/dev/null || true
+  return 0
+}
+
 # ---- portability helpers (BSD/macOS vs GNU/Linux) ----
 # GNU form (-c) FIRST: on Linux it succeeds cleanly; on macOS it fails with no stdout, so
 # the BSD (-f) fallback runs. The reverse order is unsafe — GNU parses `stat -f %m FILE` as

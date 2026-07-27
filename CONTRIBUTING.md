@@ -70,5 +70,8 @@ command, an editor shortcut, a new watch lens, and use-case recipes for docs/use
 
 If you would rather shape a bigger direction, two design threads are open under Discussions:
 a [launcher adapter](https://github.com/anshulforyou/grandma/discussions/13) so grandma can
-drive CLIs other than Claude Code, and the [knit backend](https://github.com/anshulforyou/grandma/discussions/14)
-for peer sharing of project memory. Argue for an interface there before writing code.
+drive CLIs other than Claude Code, and the [knit backend](https://github.com/anshulforyou/grandma/discussions/14),
+where the first cut of peer sharing now lives and the open half is the interesting half:
+merging two memories that disagree, keeping a share in sync as both sides learn, and how
+much of a note's origin should survive the merge. Argue for an interface there before
+writing code.

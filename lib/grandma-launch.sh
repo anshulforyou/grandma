@@ -486,6 +486,10 @@ fi
 # A quiet nudge when the engine has gone stale (no network; silence with GRANDMA_NO_UPDATE_CHECK=1).
 grandma_update_notice
 
+# A teammate's shared project memory waiting to be pulled. Reads a cache written by a detached
+# poll, so this never waits on GitHub (silence with GRANDMA_NO_KNIT_CHECK=1).
+grandma_knit_notice
+
 # Notice uncommitted memory changes (in-flight captures land as diffs you review).
 dirty="$(git -C "$ROOT" status --porcelain -- '*.md' 2>/dev/null | wc -l | tr -d ' ')"
 if [[ "${dirty:-0}" -gt 0 ]]; then

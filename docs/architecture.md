@@ -11,6 +11,7 @@ engine (this repo, public)          GRANDMA_HOME (yours, private, default ~/.gra
 ├── prompts/*.md  the doctrines     ├── side-project/    ...
 └── templates/    init scaffolding  ├── proposals/       background distill output (gitignored)
                                     ├── watches/         analysis campaigns (gitignored)
+                                    ├── .knit/           knit working copies (gitignored)
                                     └── denylist.txt     your sweater-jargon guard list
 ```
 
@@ -54,6 +55,48 @@ Three routes, one definition of "worth remembering" (`prompts/capture.md`):
 Every route lands as uncommitted changes in your memory repo. Git is the review queue,
 the history, and the undo.
 
+## Knit: the path a shared memory takes
+
+`grandma knit share <sweater> <project>` moves exactly one project's memory, and it moves
+it through four gates.
+
+1. **Scope.** The payload is built from the project's own `CLAUDE.md` and nothing else. The
+   sweater's files and `global/` are never opened for it. That is the whole reason knit is
+   per project rather than per sweater.
+2. **Strip.** Line by line: out goes anything carrying the user's name (read from
+   `global/identity.md`), an address, a credential shape, a term from their `denylist.txt`,
+   a `<!-- private -->` marker, or anything inside a `<!-- knit:private -->` block. Absolute
+   home paths become `~`. The count of dropped lines is reported, because a silent strip
+   teaches nobody what it caught.
+3. **Eyes.** The exact payload prints before anything moves, and a share that is not a
+   terminal and has no `--yes` refuses outright. Nothing acts outward on its own here
+   either.
+4. **Transport.** A private repo `grandma-knit-<project>` under the user's own GitHub, one
+   file per person under `shares/`, the teammate added as a collaborator. GitHub does the
+   emailing. There is no grandma server, no account, and no key to paste, because the
+   private repo's access list is the boundary. Nothing is encrypted, and the docs say so
+   rather than implying a security level knit does not have. `--file` writes the same
+   bundle to disk for anyone off GitHub.
+
+Coming back the other way, an invitation is a notification problem. GitHub has no pollable
+inbox for a gist mention (there is no gist search API and gist mentions never reach the
+notifications API, which is repo-scoped), but a repository invitation sits in
+`GET /user/repository_invitations`, which is exactly a pollable inbox. That single fact is
+why the transport is a repo and not the secret gist the design started with.
+
+The launch banner reads a cache file, never the network. When the cache is older than
+`GRANDMA_KNIT_POLL_HOURS` (default 8), the launcher detaches a poll for next time, the same
+shape as the watch tick. The poll takes a lock so a stalled one cannot spawn siblings, caps
+itself with a wall clock, and only overwrites the cache when the call actually succeeded. A
+timeout or a logged-out `gh` leaves the previous state alone: a bad network must never read
+as "nothing is waiting for you".
+
+A pulled share does not merge. It becomes a proposal in `proposals/`, named
+`<scope>-knit-<project>-<stamp>.md` so the existing review flow resolves its sweater, and
+the reviewing session is told to lay it against local memory and ask where the two disagree.
+A content hash goes in a git-ignored ledger, so pulling twice is a no-op and a teammate's
+updated share comes through as a new proposal.
+
 ## Compaction self-healing
 
 Claude Code compacts long conversations, and `--append-system-prompt` content does not
@@ -63,7 +106,7 @@ session does not degrade into an agent that forgot who you are.
 
 ## The integrity suite
 
-`grandma test` verifies twelve invariants. The interesting ones:
+`grandma test` verifies thirteen invariants. The interesting ones:
 
 1. **Isolation.** Every sweater's assembled bundle contains only `global/` and that
    sweater. Nothing else, in any load mode.
@@ -73,6 +116,8 @@ session does not degrade into an agent that forgot who you are.
    suite greps for token patterns on every run.
 4. **Hook safety.** The recursion guard, the circuit breaker, and the sandbox-readable
    transcript path must exist. These three each correspond to a real incident (below).
+5. **Knit guards.** Sharing cannot lose its strip, its poll lock, its network cap, or its
+   opt-out, and the launch banner has to stay wired to the launcher.
 
 The suite runs as a git pre-commit gate on the engine and in CI on macOS and Linux.
 

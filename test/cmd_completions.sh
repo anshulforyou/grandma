@@ -31,6 +31,14 @@ for command in start tick list status report finish notify-test install-agent; d
   assert_contains "$command" "lists watch command '$command'"
 done
 
+section "completions - knit commands"
+capture env "$GBIN" completions __knit_commands
+assert_rc 0 "knit command lister runs under set -u"
+for command in share pull list; do
+  assert_contains "$command" "lists knit command '$command'"
+done
+assert_not_contains "poll" "poll is internal and not offered"
+
 section "completions - projects under a scope (kebab-safe)"
 capture env "$GBIN" completions __projects home-ops
 assert_rc 0 "completions __projects home-ops runs (kebab scope resolves, not truncated to 'home')"
@@ -85,6 +93,24 @@ LAST_RC=0
 assert_rc 0 "watch completion runs"
 assert_contains "start" "watch completes its subcommands"
 assert_contains "status" "watch includes every matching subcommand"
+
+COMP_WORDS=(grandma knit s); COMP_CWORD=2; COMPREPLY=()
+_grandma_complete
+# shellcheck disable=SC2034  # read by assert helpers from test/lib/assert.sh
+LAST_OUT="${COMPREPLY[*]}"
+# shellcheck disable=SC2034  # read by assert helpers from test/lib/assert.sh
+LAST_RC=0
+assert_rc 0 "knit completion runs"
+assert_contains "share" "knit completes its subcommands"
+
+COMP_WORDS=(grandma knit share h); COMP_CWORD=3; COMPREPLY=()
+_grandma_complete
+# shellcheck disable=SC2034  # read by assert helpers from test/lib/assert.sh
+LAST_OUT="${COMPREPLY[*]}"
+# shellcheck disable=SC2034  # read by assert helpers from test/lib/assert.sh
+LAST_RC=0
+assert_rc 0 "knit share completion runs"
+assert_contains "home-ops" "knit share completes sweaters, including kebab-case names"
 
 COMP_WORDS=(grandma globex B); COMP_CWORD=2; COMPREPLY=()
 _grandma_complete
