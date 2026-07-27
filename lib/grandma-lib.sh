@@ -146,19 +146,31 @@ project_entries() {
 # Sets RP_STATUS (OK|AMBIG|NONE), RP_NAME, RP_DIR, RP_CANDS.
 # shellcheck disable=SC2034  # RP_STATUS/RP_NAME/RP_DIR/RP_CANDS are outputs read by callers
 resolve_project() {
-  local reg="$1/projects.md" q raw dir nraw matches=0
+  local reg="$1/projects.md" q raw dir nraw sc best=0 nbest=0
   q="$(norm "$2")"
   RP_STATUS=NONE; RP_NAME=""; RP_DIR=""; RP_CANDS=""
+  [[ -z "$q" ]] && return
+  # Rank each candidate and keep only the best tier, so a strong match beats a weak one
+  # instead of colliding into AMBIG. Tiers: 4 exact, 3 the name starts with the query
+  # (rainforest-midnight (...) for 'rainforest-midnight'), 2 the query is somewhere in the
+  # name, 1 the name is a fragment of the query (the weak 'rainforest' case). Only true ties
+  # at the top tier are ambiguous.
   while IFS=$'\t' read -r raw dir; do
     [[ -z "$raw" ]] && continue
     nraw="$(norm "$raw")"
-    if [[ -n "$q" && ( "$nraw" == *"$q"* || "$q" == *"$nraw"* ) ]]; then
-      matches=$((matches+1)); RP_NAME="$raw"; RP_DIR="$dir"
-      RP_CANDS+="${RP_CANDS:+, }$raw"
+    sc=0
+    if   [[ "$nraw" == "$q" ]];   then sc=4
+    elif [[ "$nraw" == "$q"* ]];  then sc=3
+    elif [[ "$nraw" == *"$q"* ]]; then sc=2
+    elif [[ "$q" == *"$nraw"* ]]; then sc=1
+    fi
+    [[ "$sc" -eq 0 ]] && continue
+    if   (( sc > best )); then best=$sc; nbest=1; RP_NAME="$raw"; RP_DIR="$dir"; RP_CANDS="$raw"
+    elif (( sc == best )); then nbest=$((nbest+1)); RP_NAME="$raw"; RP_DIR="$dir"; RP_CANDS+="${RP_CANDS:+, }$raw"
     fi
   done < <(project_entries "$reg")
-  if   [[ $matches -eq 1 ]]; then RP_STATUS=OK
-  elif [[ $matches -gt 1 ]]; then RP_STATUS=AMBIG; fi
+  if   [[ $nbest -eq 1 ]]; then RP_STATUS=OK
+  elif [[ $nbest -gt 1 ]]; then RP_STATUS=AMBIG; fi
 }
 
 # Munge an absolute path to its Claude projects dir name (/ -> -).
