@@ -181,6 +181,39 @@ assert_contains "pushed your Yard memory" "the sender pushes the update"
 capture env GRANDMA_HOME="$H2" GH_FAKE_LOGIN=mate "$GBIN" knit pull
 assert_contains "1 new share(s)" "the receiver sees the update as a new proposal"
 
+section "knit — a home that predates knit gets the ignore rule before ANY write"
+# The real case: a memory home created before knit shipped has no .knit line, and the very
+# first knit write must add it. This bit on a live home once — the --file share writes a
+# ledger and the launch poll writes its cache, and neither went through the GitHub path that
+# used to be the only caller, so .knit/ and .knit-* sat untracked in a memory repo that is
+# reviewed a diff at a time. Every writing subcommand is checked, not just share.
+OLDH="$TMP/oldhome"; make_fixture_home "$OLDH"
+grep -v '^\.knit' "$OLDH/.gitignore" > "$OLDH/.gitignore.tmp" && mv "$OLDH/.gitignore.tmp" "$OLDH/.gitignore"
+capture cat "$OLDH/.gitignore"
+assert_not_contains ".knit/" "the pre-knit home starts with no ignore rule (the fixture is set up right)"
+
+capture env GRANDMA_HOME="$OLDH" GRANDMA_DRY_RUN=1 "$GBIN" knit share home-ops yard --file "$TMP/dry.knit"
+assert_rc 0 "a dry run still runs"
+capture cat "$OLDH/.gitignore"
+assert_not_contains ".knit/" "a DRY RUN writes nothing, not even the ignore rule"
+
+capture env GRANDMA_HOME="$OLDH" "$GBIN" knit share home-ops yard --file "$TMP/old.knit"
+assert_rc 0 "the file share runs"
+capture cat "$OLDH/.gitignore"
+assert_contains ".knit/" "a --file share adds the rule (it writes a ledger, so it must)"
+capture env GRANDMA_HOME="$OLDH" "$GBIN" test home-ops
+assert_rc 0 "and the integrity invariants pass afterwards"
+
+OLDH2="$TMP/oldhome2"; make_fixture_home "$OLDH2"
+grep -v '^\.knit' "$OLDH2/.gitignore" > "$OLDH2/.gitignore.tmp" && mv "$OLDH2/.gitignore.tmp" "$OLDH2/.gitignore"
+fake_gh_invitation "$GHROOT" 99 someone "someone/grandma-knit-yard"
+capture env GRANDMA_HOME="$OLDH2" GH_FAKE_LOGIN=mate "$ENGINE/lib/grandma-knit.sh" poll
+assert_rc 0 "the background poll runs"
+capture cat "$OLDH2/.gitignore"
+assert_contains ".knit-pending" "the poll adds the rule too (it writes a cache into the home)"
+capture env GRANDMA_HOME="$OLDH2" bash -c 'cd "$0" && git status --porcelain | grep "^??" | grep knit || true' "$OLDH2"
+assert_not_contains ".knit" "and nothing knit-related shows up as untracked cruft"
+
 section "knit — the memory home keeps share clones out of its history"
 capture cat "$H/.gitignore"
 assert_contains ".knit/" "the working copies are gitignored"

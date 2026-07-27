@@ -56,14 +56,18 @@ have_gh() { command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; }
 # gh_login — the authenticated GitHub username (the owner of the share repos).
 gh_login() { gh api user --jq .login 2>/dev/null; }
 
-# ensure_knit_ignored — keep the local knit working copies out of the memory repo's history.
-# Homes created before knit shipped have no .knit line in .gitignore, so add it on first use.
+# ensure_knit_ignored — keep knit's local scratch out of the memory repo's history. A home
+# created before knit shipped has no .knit line in .gitignore, so add it on first use. This
+# has to run before ANY knit write, not just the GitHub ones: the --file share writes a
+# ledger and the launch poll writes its cache, and either one alone leaves untracked cruft
+# sitting in a memory repo that is supposed to be reviewed a diff at a time. It is wired into
+# the dispatcher for that reason, so a new subcommand cannot forget it.
 ensure_knit_ignored() {
   local gi="$ROOT/.gitignore"
   [[ -d "$ROOT" ]] || return 0
   grep -qx '.knit/' "$gi" 2>/dev/null && return 0
   printf '.knit/\n.knit-pending\n.knit-checked\n' >> "$gi" 2>/dev/null \
-    && say "+ .knit/ added to $(basename "$ROOT")/.gitignore (share working copies stay local)"
+    && say "+ .knit/ added to $(basename "$ROOT")/.gitignore (knit's scratch stays local)"
 }
 
 # git_here <dir> <args...> — a git command in <dir> with an identity that always resolves, so
@@ -236,7 +240,6 @@ cmd_share() {
     [[ "${ans:-n}" =~ ^[Yy]$ ]] || { rm -f "$tmp"; say "nothing shared."; exit 0; }
   fi
 
-  ensure_knit_ignored
   mkdir -p "$KNIT/out"
   local wd="$KNIT/out/$repo"
   if [[ ! -d "$wd/.git" ]]; then
@@ -390,7 +393,6 @@ cmd_pull() {
     exit 0
   fi
 
-  ensure_knit_ignored
   mkdir -p "$KNIT/in"
 
   # 1. accept pending invitations to knit repos (and only those)
@@ -521,6 +523,12 @@ cmd_poll() {
 }
 
 # ----------------------------------------------------------------- dispatch ----
+
+# Anything that can write to the home ensures the ignore rule first. A dry run must stay
+# side-effect free, so it is exempt (and it writes nothing to guard against either).
+case "${1:-}" in
+  share|pull|poll) dry || ensure_knit_ignored ;;
+esac
 
 case "${1:-}" in
   share) shift; cmd_share "$@" ;;
