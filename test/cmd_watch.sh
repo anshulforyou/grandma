@@ -67,6 +67,22 @@ capture env "$GBIN" watch status
 assert_rc 0 "status runs with tool counts"
 assert_contains "top tools: Bash=2 Edit=2" "status ranks tools by call count"
 
+section "watch — a row written before the tool lens is backfilled, not skipped"
+# Strip the key to fake a pre-lens row: same mtime, so only the "tools" check saves it.
+mfile="$GRANDMA_HOME/watches/$slug/data/metrics.jsonl"
+python3 - "$mfile" <<'PY'
+import json, sys
+rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+for r in rows: r.pop("tools", None)
+open(sys.argv[1], "w").write("".join(json.dumps(r) + "\n" for r in rows))
+PY
+capture env PATH="/usr/bin:/bin" "$GBIN" watch tick
+assert_rc 0 "tick runs over rows missing the tool counts"
+# shellcheck disable=SC2034  # LAST_OUT is read by assert_* (sourced from lib/assert.sh)
+LAST_OUT="$(cat "$mfile")"
+assert_contains '"Bash": 1' "re-parses the old row instead of skipping it on mtime"
+assert_contains '"Edit": 2' "backfilled counts match a freshly measured session"
+
 section "watch — report synthesis feeds the tool lens to the model, guard intact"
 FB="$TMP/fakebin"; make_fake_claude "$FB" >/dev/null
 capture env PATH="$FB:/usr/bin:/bin" "$GBIN" watch finish "$slug"

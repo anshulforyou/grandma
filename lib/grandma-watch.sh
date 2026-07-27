@@ -164,7 +164,9 @@ if os.path.exists(mpath):
 for p in paths:
     sid = os.path.basename(p)[:-6]
     mtime = int(os.path.getmtime(p))
-    if sid in old and old[sid].get("mtime") == mtime:
+    # rows written before the tool lens have no "tools" key: re-parse them once, then
+    # the mtime shortcut resumes as before.
+    if sid in old and old[sid].get("mtime") == mtime and "tools" in old[sid]:
         continue
     m = {"session": sid, "mtime": mtime, "project": os.path.basename(os.path.dirname(p)),
          "user_turns": 0, "assistant_turns": 0, "tool_calls": 0, "compactions": 0,
