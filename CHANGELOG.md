@@ -12,7 +12,9 @@
   cache refreshed by a detached, lock-guarded, time-capped poll, so it never waits on the
   network and a failed call never reads as "nothing waiting". Opt out with
   `GRANDMA_NO_KNIT_CHECK=1`; tune with `GRANDMA_KNIT_POLL_HOURS`.
-
+- `grandma watch`: tool-usage lens. Metrics now count calls per tool name, not just the
+  total, so `grandma watch status` shows your top tools live and the final report can
+  reason about the mix. Mechanical (python over the transcript), no model call.
 - `grandma update` / `grandma version`: update the engine in place with a fast-forward pull
   (never forces), and print the running version (the `VERSION` file plus the commit). No server
   and no telemetry: instead of checking anywhere, grandma prints one quiet launch line when your
