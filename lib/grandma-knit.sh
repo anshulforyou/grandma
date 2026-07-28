@@ -179,7 +179,8 @@ contact_lookup() {
     [[ -n "${n:-}" ]] || continue
     case "$n" in \#*) continue ;; esac
     if [[ "$(printf '%s' "$n" | tr '[:upper:]' '[:lower:]')" == "$q" \
-       || "$(printf '%s' "${h:-}" | tr '[:upper:]' '[:lower:]')" == "$q" ]]; then
+       || "$(printf '%s' "${h:-}" | tr '[:upper:]' '[:lower:]')" == "$q" \
+       || "$(printf '%s' "${e:-}" | tr '[:upper:]' '[:lower:]')" == "$q" ]]; then
       printf '%s\t%s\t%s\n' "$n" "${h:-}" "${e:-}"; return 0
     fi
   done < "$CONTACTS"
@@ -205,6 +206,23 @@ contact_save() {
   mv "$tmp" "$CONTACTS" 2>/dev/null || rm -f "$tmp"
 }
 
+# looks_like_email <token>
+looks_like_email() { [[ "$1" == *@*.* && "$1" != *" "* ]]; }
+
+# gh_user_for_email <email> — the GitHub handle whose PUBLIC profile email is this address.
+# GitHub's collaborator API takes a username and cannot accept an address, so an email has to
+# be turned into a handle first. This only works when the person has made their email public
+# on their profile, which most people have not: the caller must handle "no match" as normal.
+gh_user_for_email() {
+  have_gh || return 1
+  local out n
+  out="$(gh api "/search/users?q=$(printf '%s' "$1" | sed 's/@/%40/')+in:email" \
+          --jq '"\(.total_count)\t\(.items[0].login // "")"' 2>/dev/null)" || return 1
+  n="${out%%$'\t'*}"
+  [[ "${n:-0}" == "1" ]] || return 1
+  printf '%s' "${out#*$'\t'}"
+}
+
 # contact_resolve <token> — turn what the user typed into a GitHub handle. A known name (or
 # a known handle) resolves from the book; anything else is passed through untouched, so a
 # handle you have never saved still works exactly as before.
@@ -222,15 +240,20 @@ contact_resolve() {
 # terminals only, skipped under --yes and in dry runs: a convenience prompt must never be
 # the reason a scripted share blocks.
 contact_offer_name() {
-  local handle="$1" hit name email
+  local handle="$1" known="${2:-}" hit name email
   hit="$(contact_lookup "$handle")"
   [[ -n "$hit" ]] && return 0            # already known, nothing to ask
   [ -t 0 ] || return 0
-  printf '  save %s in your knit contacts? name to remember them by (empty to skip): ' "$handle" >&2
+  printf '  save %s so you can share with them by name next time?\n' "$handle" >&2
+  printf '  name to remember them by (empty to skip): ' >&2
   IFS= read -r name || return 0
   [[ -n "$name" ]] || return 0
-  printf '  email for %s, for the --file handover (optional, empty to skip): ' "$name" >&2
-  IFS= read -r email || email=""
+  if [[ -n "$known" ]]; then
+    email="$known"
+  else
+    printf '  email for %s, for the --file handover (optional, empty to skip): ' "$name" >&2
+    IFS= read -r email || email=""
+  fi
   contact_save "$name" "$handle" "$email"
   say "saved. next time: grandma knit share <sweater> <project> --to $name"
 }
@@ -246,6 +269,8 @@ note_ledger() {
 
 cmd_share() {
   local sweater="" project="" file="" yes=0 to=() nextto=0 asname="" nextname=0
+  local -a TO_EMAIL=()
+  local _uemail=""
   for arg in "$@"; do
     if [[ "$nextto" == "1" ]]; then to+=("$arg"); nextto=0; continue; fi
     if [[ "$nextname" == "1" ]]; then asname="$arg"; nextname=0; continue; fi
@@ -270,18 +295,35 @@ cmd_share() {
   # A --to token may be a saved contact name or a raw GitHub handle. Resolve names to
   # handles now, so everything downstream (the confirm prompt, the invite, the ledger) sees
   # the handle. An unknown token passes through untouched, so a handle still works as before.
-  local _i _tok _hit
+  local _i _tok _hit _resolved
   for _i in "${!to[@]}"; do
     _tok="${to[$_i]}"
     _hit="$(contact_lookup "$_tok")"
-    to[$_i]="$(contact_resolve "$_tok")"
-    if [[ -n "$_hit" && "${to[$_i]}" != "$_tok" ]]; then
-      say "$_tok -> $(printf '%s' "$_hit" | cut -f2) (from your knit contacts)"
-    elif [[ -z "$_hit" && "$_tok" != *[!a-zA-Z0-9-]* ]]; then
-      : # an unsaved handle; contact_offer_name asks about it after the invite succeeds
-    elif [[ -z "$_hit" ]]; then
-      die "'$_tok' is not a saved contact and is not a valid GitHub handle. Add them with: grandma knit contacts add <name> <github-handle> [email]"
+    if [[ -n "$_hit" ]]; then
+      # a saved name, handle, or email: the book answers without touching the network
+      to[$_i]="$(printf '%s' "$_hit" | cut -f2)"
+      [[ "${to[$_i]}" != "$_tok" ]] && say "$_tok -> ${to[$_i]} (from your knit contacts)"
+      continue
     fi
+    if looks_like_email "$_tok"; then
+      # An address has to become a handle, because the collaborator API takes a username.
+      # GitHub can only match an address that the person has made PUBLIC on their profile,
+      # which most people have not, so a miss here is ordinary and gets a real explanation.
+      _resolved="$(gh_user_for_email "$_tok" || true)"
+      if [[ -n "$_resolved" ]]; then
+        say "$_tok -> $_resolved (matched on their public GitHub email)"
+        to[$_i]="$_resolved"
+        TO_EMAIL[$_i]="$_tok"   # remember it, so saving them does not ask for it again
+        continue
+      fi
+      say "GitHub has no user with $_tok as a public profile email, and an invite needs a handle."
+      say "Their handle is on their GitHub profile page. Once you have it:"
+      die "  grandma knit contacts add <name> <handle> $_tok   (then: --to <name>)"
+    fi
+    if [[ "$_tok" == *[!a-zA-Z0-9-]* ]]; then
+      die "'$_tok' is not a saved contact, an email, or a valid GitHub handle. Add them with: grandma knit contacts add <name> <github-handle> [email]"
+    fi
+    : # an unsaved handle; contact_offer_name asks about it after the invite succeeds
   done
 
   local dir; dir="$(resolve_scope_dir "$sweater" 2>/dev/null)" \
@@ -385,8 +427,10 @@ EOF
     if gh api --method PUT "repos/$sender/$repo/collaborators/$u" -f permission=push >/dev/null 2>&1; then
       say "invited $u — GitHub emails them, and their grandma offers the pull at launch"
       note_ledger out "$u" "$RP_NAME" "$sender/$repo" "-"
-      if [[ -n "$asname" ]]; then contact_save "$asname" "$u" ""; say "saved $u as '$asname'"
-      elif [[ "$yes" != "1" ]]; then contact_offer_name "$u"; fi
+      _uemail=""
+      for _i in "${!to[@]}"; do [[ "${to[$_i]}" == "$u" ]] && _uemail="${TO_EMAIL[$_i]:-}"; done
+      if [[ -n "$asname" ]]; then contact_save "$asname" "$u" "$_uemail"; say "saved $u as '$asname'"
+      elif [[ "$yes" != "1" ]]; then contact_offer_name "$u" "$_uemail"; fi
     else
       say "could not invite $u (is that a real GitHub username?)"
     fi

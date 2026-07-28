@@ -257,6 +257,20 @@ assert_contains "would invite:              priyansh-gh" "and the invite targets
 capture env GRANDMA_HOME="$H" GRANDMA_DRY_RUN=1 "$GBIN" knit share home-ops yard --to PRIYANSH
 assert_contains "would invite:              priyansh-gh" "name matching is case-insensitive"
 
+section "contacts — a saved EMAIL resolves too, without asking GitHub anything"
+capture env GRANDMA_HOME="$H" GRANDMA_DRY_RUN=1 "$GBIN" knit share home-ops yard --to priyansh@example.com
+assert_rc 0 "sharing to a saved contact's email runs"
+assert_contains "priyansh@example.com -> priyansh-gh" "the address resolves from your own book"
+assert_contains "would invite:              priyansh-gh" "and the invite still targets the handle"
+
+section "contacts — an unknown email explains itself instead of failing at GitHub"
+# GitHub can only match an address the person made PUBLIC on their profile, which most have
+# not. The failure has to name the reason and the fix, not just refuse.
+capture env GRANDMA_HOME="$H" GRANDMA_DRY_RUN=1 "$GBIN" knit share home-ops yard --to nobody@example.com
+assert_rc 1 "an unresolvable address stops before anything moves"
+assert_contains "public profile email" "it says WHY GitHub could not match it"
+assert_contains "contacts add" "and gives the exact command to fix it"
+
 section "contacts — an unsaved handle still works exactly as before"
 capture env GRANDMA_HOME="$H" GRANDMA_DRY_RUN=1 "$GBIN" knit share home-ops yard --to someone-else
 assert_rc 0 "an unknown handle is not blocked"

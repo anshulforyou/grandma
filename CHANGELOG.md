@@ -21,7 +21,9 @@
   remembering a GitHub handle. The first share with someone offers to save them under a name
   you choose. Lives under the git-ignored `.knit/`, so it is convenience state and never
   becomes memory. The handle is what an invite needs (GitHub's collaborator API takes a
-  username, not an address); an email can ride along as a note for the `--file` handover.
+  username, not an address). `--to` also accepts an email: one saved against a contact
+  resolves from your own book, and an unseen one is looked up on GitHub, which only matches
+  addresses people have made public on their profile. A miss explains why and how to fix it.
 - Fixed: only a real sweater can be loaded. Any top-level directory in the memory home used to
   resolve as one, so `grandma proposals` assembled every sweater's pending proposals into a
   single session. Resolution now goes through `list_scopes`, in both the launcher and
