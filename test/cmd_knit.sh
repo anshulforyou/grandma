@@ -257,6 +257,22 @@ assert_contains "would invite:              priyansh-gh" "and the invite targets
 capture env GRANDMA_HOME="$H" GRANDMA_DRY_RUN=1 "$GBIN" knit share home-ops yard --to PRIYANSH
 assert_contains "would invite:              priyansh-gh" "name matching is case-insensitive"
 
+section "contacts — a non-email in the email field is refused, not stored"
+# Found in real use: the prompt was ambiguous enough that a message got typed where an
+# address belonged, and it was stored without complaint. Garbage in that column is not
+# harmless, since --to matches on it.
+capture env GRANDMA_HOME="$H" "$GBIN" knit contacts add Someone someone-gh "this is a message not an email"
+assert_rc 1 "adding a non-email is refused"
+assert_contains "is not an email address" "and says why"
+capture env GRANDMA_HOME="$H" "$GBIN" knit contacts
+assert_not_contains "this is a message" "nothing was stored"
+capture env GRANDMA_HOME="$H" "$GBIN" knit contacts add Someone someone-gh someone@example.com
+assert_rc 0 "a real address is accepted"
+capture env GRANDMA_HOME="$H" "$GBIN" knit contacts
+assert_contains "someone@example.com" "and stored"
+capture env GRANDMA_HOME="$H" "$GBIN" knit contacts remove Someone
+assert_rc 0 "cleanup"
+
 section "contacts — a saved EMAIL resolves too, without asking GitHub anything"
 capture env GRANDMA_HOME="$H" GRANDMA_DRY_RUN=1 "$GBIN" knit share home-ops yard --to priyansh@example.com
 assert_rc 0 "sharing to a saved contact's email runs"

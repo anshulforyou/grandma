@@ -251,8 +251,14 @@ contact_offer_name() {
   if [[ -n "$known" ]]; then
     email="$known"
   else
-    printf '  email for %s, for the --file handover (optional, empty to skip): ' "$name" >&2
+    printf "  their email address, only so you can find it later if you hand a --file share\n" >&2
+    printf '  over yourself. Not sent anywhere. Press enter to skip: ' >&2
     IFS= read -r email || email=""
+    if [[ -n "$email" ]] && ! looks_like_email "$email"; then
+      say "that does not look like an email address, so it was not saved."
+      say "add it later with: grandma knit contacts add $name $handle <email>"
+      email=""
+    fi
   fi
   contact_save "$name" "$handle" "$email"
   say "saved. next time: grandma knit share <sweater> <project> --to $name"
@@ -633,6 +639,9 @@ cmd_contacts() {
       local name="${1:-}" handle="${2:-}" email="${3:-}"
       [[ -n "$name" && -n "$handle" ]] \
         || die "usage: grandma knit contacts add <name> <github-handle> [email]"
+      if [[ -n "$email" ]] && ! looks_like_email "$email"; then
+        die "'$email' is not an email address. Usage: grandma knit contacts add <name> <github-handle> [email]"
+      fi
       dry && { say "would save $name -> $handle${email:+ <$email>}"; return 0; }
       contact_save "$name" "$handle" "$email"
       say "saved $name -> $handle${email:+ <$email>}"
