@@ -32,12 +32,14 @@ printf '# p\n# scope=globex\n\ntarget: globex/facts.md | action: append | text: 
 printf '# p\n# scope=home-ops\n\ntarget: home-ops/facts.md | action: append | text: from home-ops\n' > "$H/proposals/home-ops-bbb.md"
 
 capture env GRANDMA_DRY_RUN=1 "$GBIN" proposals
-assert_rc 1 "'grandma proposals' is refused, not loaded as a sweater"
+assert_rc 2 "'grandma proposals' is refused, not loaded as a sweater"
 assert_not_contains "memory: proposals loaded" "it never assembles a bundle"
-assert_contains "no sweater" "and it says why"
+assert_not_contains "BEGIN proposals/" "and no other sweater's content rides along"
+assert_contains "Pick another name" "and it says why rather than erroring cryptically"
 
 capture env GRANDMA_DRY_RUN=1 "$GBIN" watches
-assert_rc 1 "'grandma watches' is refused too"
+assert_rc 2 "'grandma watches' is refused too"
+assert_not_contains "memory: watches loaded" "and assembles nothing"
 
 capture env "$ENGINE/lib/assemble.sh" proposals
 assert_not_contains "BEGIN proposals/" "assemble refuses the same name (no cross-sweater bundle)"
@@ -140,7 +142,52 @@ while IFS= read -r c; do [ -n "$c" ] && { bash -n -c "$c" 2>/dev/null || bad=1; 
   < <(jq -r '.hooks.SessionEnd[].hooks[].command' "$CFG" 2>/dev/null)
 [ "$bad" = 0 ] && ok "and what remains is runnable" || fail "a broken command survived the relaunch"
 
+section "hooks — pruning a stale grandma entry never touches the user's own hooks"
+# The prune is the risky half of the fix: it edits a file the user also owns. Too broad and
+# it silently deletes their hooks. Their entries must survive, both a sibling inside the same
+# group and an unrelated event.
+FCFG="$TMP/foreign/.claude/settings.local.json"; mkdir -p "$(dirname "$FCFG")"
+python3 - "$FCFG" "$ENGINE" <<'PY'
+import json, sys
+cfg, engine = sys.argv[1], sys.argv[2]
+json.dump({"hooks": {
+  "SessionEnd": [{"matcher": "", "hooks": [
+      {"type": "command", "command": "/usr/local/bin/my-own-notify.sh done", "timeout": 10},
+      {"type": "command", "command": f"{engine}/lib/grandma-session-end.sh home-ops yard (Back Garden)",
+       "async": True, "timeout": 600}]}],
+  "PreToolUse": [{"matcher": "Bash", "hooks": [
+      {"type": "command", "command": "/usr/local/bin/audit.sh", "timeout": 5}]}]}}, open(cfg, "w"))
+PY
+capture env GRANDMA_HOME="$H" bash -c '
+  . "'"$ENGINE"'/lib/grandma-lib.sh"; ENGINE="'"$ENGINE"'"; ROOT="'"$H"'"
+  s="$ENGINE/lib/grandma-session-end.sh"
+  install_hook "'"$FCFG"'" SessionEnd "" "$s" "$(hook_cmd "$s" home-ops "yard (Back Garden)")" 600 1'
+assert_rc 0 "installing over a config with foreign hooks succeeds"
+capture jq -r '.hooks.PreToolUse[].hooks[].command' "$FCFG"
+assert_contains "/usr/local/bin/audit.sh" "an unrelated event's hooks are untouched"
+capture jq -r '.hooks.SessionEnd[].hooks[].command' "$FCFG"
+assert_contains "/usr/local/bin/my-own-notify.sh" "a foreign hook sharing the group survives"
+n="$(jq -r '[.hooks.SessionEnd[].hooks[] | select(.command | contains("grandma-session-end.sh"))] | length' "$FCFG")"
+[ "$n" = "1" ] && ok "the stale grandma entry was replaced, not duplicated" \
+               || fail "expected 1 grandma session-end hook, found $n"
+capture jq -r '.hooks.SessionEnd[].hooks[] | select(.command | contains("grandma-session-end.sh")) | .command' "$FCFG"
+assert_contains "Back" "and the replacement carries the quoted project name"
+
 # ------------------------------------------------- 4. reserved sweater names ---
+section "naming — a reserved name is refused at the real call site, not just in the helper"
+# scope_name_is_reserved is unit-tested below, but a check nothing calls is not a check.
+# The refusal happens BEFORE the terminal branch, so it is reachable without a pty and a
+# script gets the same answer a person does.
+capture env GRANDMA_HOME="$H" "$GBIN" writing
+assert_rc 2 "'grandma writing' exits 2 instead of offering to knit it"
+assert_contains "is a word grandma's own engine uses" "and says why"
+assert_no_file "$H/writing" "no sweater directory was created"
+capture env GRANDMA_HOME="$H" "$GBIN" log
+assert_rc 2 "same for 'log'"
+capture env GRANDMA_HOME="$H" "$GBIN" acme-payments
+assert_rc 1 "an ordinary unknown name still gets the normal knit-it offer path (exit 1)"
+assert_contains "no sweater" "with the usual message"
+
 section "naming — a sweater named after an engine word is refused up front"
 for name in watch review writing log; do
   capture env GRANDMA_HOME="$H" bash -c \
