@@ -34,7 +34,7 @@ done
 section "completions - knit commands"
 capture env "$GBIN" completions __knit_commands
 assert_rc 0 "knit command lister runs under set -u"
-for command in share pull list; do
+for command in share pull list contacts; do
   assert_contains "$command" "lists knit command '$command'"
 done
 assert_not_contains "poll" "poll is internal and not offered"

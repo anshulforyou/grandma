@@ -17,6 +17,11 @@
   cache refreshed by a detached, lock-guarded, time-capped poll, so it never waits on the
   network and a failed call never reads as "nothing waiting". Opt out with
   `GRANDMA_NO_KNIT_CHECK=1`; tune with `GRANDMA_KNIT_POLL_HOURS`.
+- `grandma knit contacts`: a local address book, so you share with `--to Priyansh` instead of
+  remembering a GitHub handle. The first share with someone offers to save them under a name
+  you choose. Lives under the git-ignored `.knit/`, so it is convenience state and never
+  becomes memory. The handle is what an invite needs (GitHub's collaborator API takes a
+  username, not an address); an email can ride along as a note for the `--file` handover.
 - Fixed: only a real sweater can be loaded. Any top-level directory in the memory home used to
   resolve as one, so `grandma proposals` assembled every sweater's pending proposals into a
   single session. Resolution now goes through `list_scopes`, in both the launcher and

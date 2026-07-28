@@ -255,6 +255,13 @@ Grandma is being built in three phases, and you are looking at the first two.
    GitHub, `--file` writes the same bundle to disk and `grandma knit pull --file` reads
    it back.
 
+   You do not have to remember anyone's GitHub handle. The first time you share with
+   someone, grandma offers to save them under a name you pick, and after that
+   `--to Priyansh` is enough. `grandma knit contacts` shows the book, which lives with the
+   rest of knit's local scratch and never becomes memory. Note the handle is the part that
+   makes an invite work, because GitHub's collaborator API takes a username and cannot take
+   an address; an email can be saved alongside it as a note for the `--file` handover.
+
    No grandma server and no grandma account, still. The transport is your own GitHub
    through the `gh` CLI you already log into. The launch check never waits on the network:
    it prints from a cache that a detached, lock-guarded, time-capped poll refreshes, and a

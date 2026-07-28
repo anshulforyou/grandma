@@ -232,6 +232,68 @@ capture env GRANDMA_HOME="$H" PATH="$BADBIN:$PATH" "$GBIN" knit pull
 assert_rc 1 "pull exits 1 when gh cannot be used"
 assert_contains "--file" "and points at the file handover instead"
 
+# ------------------------------------------------------------- contacts -------
+section "contacts — the book starts empty and explains itself"
+capture env GRANDMA_HOME="$H" "$GBIN" knit contacts
+assert_rc 0 "'knit contacts' runs on an empty book"
+assert_contains "none yet" "says the book is empty"
+assert_contains "contacts add" "and shows how to add someone"
+
+section "contacts — add, list, and share by NAME instead of a handle"
+capture env GRANDMA_HOME="$H" "$GBIN" knit contacts add Priyansh priyansh-gh priyansh@example.com
+assert_rc 0 "adding a contact runs"
+assert_contains "Priyansh -> priyansh-gh" "reports what was saved"
+capture env GRANDMA_HOME="$H" "$GBIN" knit contacts
+assert_contains "Priyansh" "the book lists the name"
+assert_contains "priyansh-gh" "and the handle that makes an invite work"
+assert_contains "priyansh@example.com" "and the email, for the --file handover"
+
+# The point of the whole feature: type the name, grandma supplies the handle.
+capture env GRANDMA_HOME="$H" GRANDMA_DRY_RUN=1 "$GBIN" knit share home-ops yard --to Priyansh
+assert_rc 0 "sharing to a saved NAME runs"
+assert_contains "Priyansh -> priyansh-gh" "the name resolves from the contact book"
+assert_contains "would invite:              priyansh-gh" "and the invite targets the handle, not the name"
+
+capture env GRANDMA_HOME="$H" GRANDMA_DRY_RUN=1 "$GBIN" knit share home-ops yard --to PRIYANSH
+assert_contains "would invite:              priyansh-gh" "name matching is case-insensitive"
+
+section "contacts — an unsaved handle still works exactly as before"
+capture env GRANDMA_HOME="$H" GRANDMA_DRY_RUN=1 "$GBIN" knit share home-ops yard --to someone-else
+assert_rc 0 "an unknown handle is not blocked"
+assert_contains "would invite:              someone-else" "it passes through untouched"
+
+section "contacts — a name that is neither saved nor a valid handle is refused"
+capture env GRANDMA_HOME="$H" GRANDMA_DRY_RUN=1 "$GBIN" knit share home-ops yard --to "Not A Handle"
+assert_rc 1 "a typo'd name does not silently become a bogus invite"
+assert_contains "not a saved contact" "and says so"
+assert_contains "contacts add" "pointing at how to fix it"
+
+section "contacts — --name records the person on a real share"
+capture env GRANDMA_HOME="$H" "$GBIN" knit share home-ops yard --to moksh-gh --name Moksh --yes
+assert_rc 0 "sharing with --name runs"
+assert_contains "saved moksh-gh as 'Moksh'" "the contact is recorded"
+capture env GRANDMA_HOME="$H" GRANDMA_DRY_RUN=1 "$GBIN" knit share home-ops yard --to Moksh
+assert_contains "would invite:              moksh-gh" "and is usable by name straight after"
+
+section "contacts — remove"
+capture env GRANDMA_HOME="$H" "$GBIN" knit contacts remove Moksh
+assert_rc 0 "removing a contact runs"
+capture env GRANDMA_HOME="$H" "$GBIN" knit contacts
+assert_not_contains "moksh-gh" "the contact is gone"
+assert_contains "Priyansh" "the others are untouched"
+capture env GRANDMA_HOME="$H" "$GBIN" knit contacts remove Nobody
+assert_rc 1 "removing an unknown contact fails cleanly"
+
+section "contacts — the book is local scratch, never memory"
+capture cat "$H/.gitignore"
+assert_contains ".knit/" "it lives under the gitignored .knit/"
+assert_file "$H/.knit/contacts.tsv" "and that is where it is written"
+capture env GRANDMA_HOME="$H" GRANDMA_DRY_RUN=1 "$GBIN" knit contacts add Dry dry-gh
+assert_rc 0 "a dry-run add runs"
+assert_contains "would save" "and only says what it would do"
+capture cat "$H/.knit/contacts.tsv"
+assert_not_contains "dry-gh" "a dry run writes nothing"
+
 # ------------------------------------------------------- the launch poll -------
 section "poll — fills the cache the launch banner reads"
 H3="$TMP/home3"; make_fixture_home "$H3"

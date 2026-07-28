@@ -15,9 +15,11 @@
 # writes the same stripped bundle to disk, to hand over however you like.
 #
 # Usage:
-#   grandma knit share <sweater> <project> [--to <github-user>]... [--file <path>] [--yes]
+#   grandma knit share <sweater> <project> [--to <name-or-github-user>]... [--name <name>]
+#                                          [--file <path>] [--yes]
 #   grandma knit pull [--file <path>] [--as <sweater>]
 #   grandma knit list
+#   grandma knit contacts [list|add <name> <github-handle> [email]|remove <name>]
 #   grandma knit poll                  internal: refresh the invitation cache (backgrounded)
 #
 # Honest about its security level: a share is personal-stripped, non-secret project memory,
@@ -38,7 +40,7 @@ die()  { printf '  %s\n' "$1" >&2; exit 1; }
 dry()  { [[ "${GRANDMA_DRY_RUN:-0}" == "1" ]]; }
 
 usage() {
-  sed -n '3,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '3,27p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit "${1:-2}"
 }
 
@@ -155,6 +157,84 @@ payload_field() {
   sed -n '1,12p' "$1" | grep -m1 -E "^$2:" | sed "s/^$2:[[:space:]]*//" | sed 's/[[:space:]]*$//'
 }
 
+# ---------------------------------------------------------------- contacts ----
+# A local address book, so you type a person's name instead of remembering their GitHub
+# handle. Lives beside the ledger under .knit/ (git-ignored, never shared, never distilled):
+# it is convenience state, not memory. Tab-separated, three columns: name, handle, email.
+#
+# The handle is what actually makes an invite work, because GitHub's collaborator endpoint
+# takes a username in the path and has no way to accept an address. The email column is a
+# note for the --file handover, where YOU deliver the bundle and may want the address to
+# hand it to.
+
+CONTACTS="$KNIT/contacts.tsv"
+
+# contact_lookup <name-or-handle> — print "name<TAB>handle<TAB>email" for a match on either
+# the name or the handle, case-insensitively. Prints nothing when there is no match.
+contact_lookup() {
+  local q n h e
+  q="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  [[ -f "$CONTACTS" ]] || return 0
+  while IFS=$'\t' read -r n h e; do
+    [[ -n "${n:-}" ]] || continue
+    case "$n" in \#*) continue ;; esac
+    if [[ "$(printf '%s' "$n" | tr '[:upper:]' '[:lower:]')" == "$q" \
+       || "$(printf '%s' "${h:-}" | tr '[:upper:]' '[:lower:]')" == "$q" ]]; then
+      printf '%s\t%s\t%s\n' "$n" "${h:-}" "${e:-}"; return 0
+    fi
+  done < "$CONTACTS"
+  return 0
+}
+
+# contact_save <name> <handle> <email> — add or replace a contact, keyed on the name.
+contact_save() {
+  local name="$1" handle="$2" email="${3:-}" tmp n h e
+  [[ -n "$name" ]] || return 0
+  mkdir -p "$KNIT" 2>/dev/null
+  tmp="$CONTACTS.tmp"
+  : > "$tmp"
+  if [[ -f "$CONTACTS" ]]; then
+    while IFS=$'\t' read -r n h e; do
+      [[ -n "${n:-}" ]] || continue
+      [[ "$(printf '%s' "$n" | tr '[:upper:]' '[:lower:]')" == \
+         "$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')" ]] && continue
+      printf '%s\t%s\t%s\n' "$n" "${h:-}" "${e:-}" >> "$tmp"
+    done < "$CONTACTS"
+  fi
+  printf '%s\t%s\t%s\n' "$name" "$handle" "$email" >> "$tmp"
+  mv "$tmp" "$CONTACTS" 2>/dev/null || rm -f "$tmp"
+}
+
+# contact_resolve <token> — turn what the user typed into a GitHub handle. A known name (or
+# a known handle) resolves from the book; anything else is passed through untouched, so a
+# handle you have never saved still works exactly as before.
+contact_resolve() {
+  local hit; hit="$(contact_lookup "$1")"
+  if [[ -n "$hit" ]]; then
+    local h; h="$(printf '%s' "$hit" | cut -f2)"
+    if [[ -n "$h" ]]; then printf '%s' "$h"; return 0; fi
+  fi
+  printf '%s' "$1"
+}
+
+# contact_offer_name <handle> — after a successful invite to a handle grandma has not seen
+# before, ask what to call them so next time the user can type that instead. Interactive
+# terminals only, skipped under --yes and in dry runs: a convenience prompt must never be
+# the reason a scripted share blocks.
+contact_offer_name() {
+  local handle="$1" hit name email
+  hit="$(contact_lookup "$handle")"
+  [[ -n "$hit" ]] && return 0            # already known, nothing to ask
+  [ -t 0 ] || return 0
+  printf '  save %s in your knit contacts? name to remember them by (empty to skip): ' "$handle" >&2
+  IFS= read -r name || return 0
+  [[ -n "$name" ]] || return 0
+  printf '  email for %s, for the --file handover (optional, empty to skip): ' "$name" >&2
+  IFS= read -r email || email=""
+  contact_save "$name" "$handle" "$email"
+  say "saved. next time: grandma knit share <sweater> <project> --to $name"
+}
+
 # note_ledger <direction> <peer> <project> <where> <id> — provenance, one line per share that
 # crossed the boundary. Git-ignored: it is a local record, not memory.
 note_ledger() {
@@ -165,12 +245,15 @@ note_ledger() {
 # ------------------------------------------------------------------- share -----
 
 cmd_share() {
-  local sweater="" project="" file="" yes=0 to=() nextto=0
+  local sweater="" project="" file="" yes=0 to=() nextto=0 asname="" nextname=0
   for arg in "$@"; do
     if [[ "$nextto" == "1" ]]; then to+=("$arg"); nextto=0; continue; fi
+    if [[ "$nextname" == "1" ]]; then asname="$arg"; nextname=0; continue; fi
     case "$arg" in
       --to)   nextto=1 ;;
       --to=*) to+=("${arg#--to=}") ;;
+      --name) nextname=1 ;;
+      --name=*) asname="${arg#--name=}" ;;
       --file) file="-" ;;
       --file=*) file="${arg#--file=}" ;;
       --yes|-y) yes=1 ;;
@@ -183,6 +266,23 @@ cmd_share() {
   done
   [[ "$file" == "-" ]] && die "--file needs a path: grandma knit share <sweater> <project> --file <path>"
   [[ -n "$sweater" && -n "$project" ]] || usage 2
+
+  # A --to token may be a saved contact name or a raw GitHub handle. Resolve names to
+  # handles now, so everything downstream (the confirm prompt, the invite, the ledger) sees
+  # the handle. An unknown token passes through untouched, so a handle still works as before.
+  local _i _tok _hit
+  for _i in "${!to[@]}"; do
+    _tok="${to[$_i]}"
+    _hit="$(contact_lookup "$_tok")"
+    to[$_i]="$(contact_resolve "$_tok")"
+    if [[ -n "$_hit" && "${to[$_i]}" != "$_tok" ]]; then
+      say "$_tok -> $(printf '%s' "$_hit" | cut -f2) (from your knit contacts)"
+    elif [[ -z "$_hit" && "$_tok" != *[!a-zA-Z0-9-]* ]]; then
+      : # an unsaved handle; contact_offer_name asks about it after the invite succeeds
+    elif [[ -z "$_hit" ]]; then
+      die "'$_tok' is not a saved contact and is not a valid GitHub handle. Add them with: grandma knit contacts add <name> <github-handle> [email]"
+    fi
+  done
 
   local dir; dir="$(resolve_scope_dir "$sweater" 2>/dev/null)" \
     || die "no sweater '$sweater' — run 'grandma' to see yours."
@@ -285,6 +385,8 @@ EOF
     if gh api --method PUT "repos/$sender/$repo/collaborators/$u" -f permission=push >/dev/null 2>&1; then
       say "invited $u — GitHub emails them, and their grandma offers the pull at launch"
       note_ledger out "$u" "$RP_NAME" "$sender/$repo" "-"
+      if [[ -n "$asname" ]]; then contact_save "$asname" "$u" ""; say "saved $u as '$asname'"
+      elif [[ "$yes" != "1" ]]; then contact_offer_name "$u"; fi
     else
       say "could not invite $u (is that a real GitHub username?)"
     fi
@@ -465,6 +567,50 @@ cmd_list() {
   printf '\n' >&2
 }
 
+cmd_contacts() {
+  local action="${1:-list}"; shift 2>/dev/null || true
+  case "$action" in
+    list|"")
+      printf '\n  knit contacts\n' >&2
+      if [[ ! -s "$CONTACTS" ]]; then
+        printf '    none yet — they are saved as you share, or add one:\n' >&2
+        printf '    grandma knit contacts add <name> <github-handle> [email]\n\n' >&2
+        return 0
+      fi
+      printf '    %-18s %-20s %s\n' NAME GITHUB EMAIL >&2
+      local n h e
+      while IFS=$'\t' read -r n h e; do
+        [[ -n "${n:-}" ]] || continue
+        printf '    %-18s %-20s %s\n' "$n" "${h:--}" "${e:--}" >&2
+      done < "$CONTACTS"
+      printf '\n    share with one: grandma knit share <sweater> <project> --to <name>\n\n' >&2
+      ;;
+    add)
+      local name="${1:-}" handle="${2:-}" email="${3:-}"
+      [[ -n "$name" && -n "$handle" ]] \
+        || die "usage: grandma knit contacts add <name> <github-handle> [email]"
+      dry && { say "would save $name -> $handle${email:+ <$email>}"; return 0; }
+      contact_save "$name" "$handle" "$email"
+      say "saved $name -> $handle${email:+ <$email>}"
+      ;;
+    remove|rm|forget)
+      local name="${1:-}"
+      [[ -n "$name" ]] || die "usage: grandma knit contacts remove <name>"
+      [[ -n "$(contact_lookup "$name")" ]] || die "no contact named '$name'"
+      dry && { say "would remove $name"; return 0; }
+      local n h e tmp="$CONTACTS.tmp"; : > "$tmp"
+      while IFS=$'\t' read -r n h e; do
+        [[ -n "${n:-}" ]] || continue
+        [[ "$(printf '%s' "$n" | tr '[:upper:]' '[:lower:]')" == \
+           "$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')" ]] && continue
+        printf '%s\t%s\t%s\n' "$n" "${h:-}" "${e:-}" >> "$tmp"
+      done < "$CONTACTS"
+      mv "$tmp" "$CONTACTS"; say "removed $name"
+      ;;
+    *) die "unknown contacts action: $action (list, add, remove)" ;;
+  esac
+}
+
 # run_bounded <secs> <cmd...> — run a command with a wall-clock cap, print its stdout. The
 # poll runs detached at launch time, so a network stall must never leave a process hanging
 # around forever. Pure bash: no timeout(1) on macOS, no new dependency.
@@ -530,13 +676,14 @@ cmd_poll() {
 # Anything that can write to the home ensures the ignore rule first. A dry run must stay
 # side-effect free, so it is exempt (and it writes nothing to guard against either).
 case "${1:-}" in
-  share|pull|poll) dry || ensure_knit_ignored ;;
+  share|pull|poll|contacts) dry || ensure_knit_ignored ;;
 esac
 
 case "${1:-}" in
   share) shift; cmd_share "$@" ;;
   pull)  shift; cmd_pull "$@" ;;
   list)  shift; cmd_list ;;
+  contacts) shift; cmd_contacts "$@" ;;
   poll)  shift; cmd_poll ;;
   help|-h|--help) usage 0 ;;
   *)     usage 2 ;;
