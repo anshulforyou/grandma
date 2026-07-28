@@ -405,9 +405,24 @@ grandma_knit_notice() {
   if [[ -f "$cf" ]]; then
     last="$(head -n1 "$cf" 2>/dev/null | tr -cd '0-9')"
     [[ -n "$last" && $((now - last)) -lt "$age" ]] 2>/dev/null && return 0
+    nohup "$ENGINE/lib/grandma-knit.sh" poll >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+    return 0
   fi
-  nohup "$ENGINE/lib/grandma-knit.sh" poll >/dev/null 2>&1 &
-  disown 2>/dev/null || true
+
+  # FIRST check ever on this machine: poll in the foreground, tightly capped, so someone who
+  # was just invited sees it on this launch instead of the next one. Backgrounding it means
+  # the cache is written after the banner has already been read, so the very launch that
+  # matters most to a new recipient is the one that shows nothing. Every later check goes
+  # back to the background. The cap is small and it fails open, so a dead network costs a
+  # couple of seconds once, not a hung prompt.
+  GRANDMA_KNIT_POLL_TIMEOUT="${GRANDMA_KNIT_FIRST_POLL_TIMEOUT:-5}" \
+    "$ENGINE/lib/grandma-knit.sh" poll >/dev/null 2>&1 || true
+  if [[ -s "$pf" ]]; then
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && printf '  🧶 %s\n' "$line" >&2
+    done < "$pf"
+  fi
   return 0
 }
 

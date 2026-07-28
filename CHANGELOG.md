@@ -28,6 +28,11 @@
   ones with a pending invitation. The invitation email has an Accept button, and clicking it
   consumes the invitation, so the previous behaviour was to find nothing and say nothing
   about why.
+- Fixed: someone who was just shared with is told on the launch they are looking at, not the
+  next one. The invitation check is backgrounded, so the cache was written after the banner
+  had been read. The very first check on a machine now runs in the foreground under a tight
+  cap (`GRANDMA_KNIT_FIRST_POLL_TIMEOUT`, default 5s, fails open); every later one is
+  backgrounded as before.
 - Fixed: only a real sweater can be loaded. Any top-level directory in the memory home used to
   resolve as one, so `grandma proposals` assembled every sweater's pending proposals into a
   single session. Resolution now goes through `list_scopes`, in both the launcher and

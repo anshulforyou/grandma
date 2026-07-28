@@ -353,6 +353,31 @@ notice() {  # grandma_knit_notice on its own, under set -u, exactly as the launc
     'set -uo pipefail; . "'"$ENGINE"'/lib/grandma-lib.sh"; ENGINE="'"$ENGINE"'"; ROOT="'"$1"'"; grandma_knit_notice' 2>&1
 }
 
+section "notice — a first-time recipient is told on THIS launch, not the next one"
+# The whole point of the flow: someone gets shared with, opens grandma, and is told. The poll
+# is backgrounded, so the cache is written after the banner has been read — which made the one
+# launch that matters to a new recipient the one that showed nothing.
+H5="$TMP/home5"; make_fixture_home "$H5"
+fake_gh_invitation "$GHROOT" 55 someone "someone/grandma-knit-yard"
+CB2="$TMP/cbin2"; make_fake_claude "$CB2" "$TMP/launched2" >/dev/null
+capture env GRANDMA_HOME="$H5" GH_FAKE_LOGIN=mate GRANDMA_NO_SPLASH=1 GRANDMA_NO_AUTOSAVE=1 \
+  GRANDMA_NO_HOOK=1 PATH="$CB2:$PATH" HOME="$TMP/fh5" "$GBIN" globex
+assert_rc 0 "the first launch after being invited runs"
+assert_contains "someone shared project memory" "and tells them right away, on this launch"
+assert_file "$H5/.knit-checked" "the check is stamped so later launches go back to the background"
+
+section "notice — a stalled first check cannot hang the prompt"
+H6="$TMP/home6"; make_fixture_home "$H6"
+SLOW="$TMP/slowbin"; mkdir -p "$SLOW"
+printf '#!/usr/bin/env bash\nsleep 60\n' > "$SLOW/gh"; chmod +x "$SLOW/gh"
+t0=$(date +%s)
+capture env GRANDMA_HOME="$H6" GRANDMA_KNIT_FIRST_POLL_TIMEOUT=2 GRANDMA_NO_SPLASH=1 \
+  GRANDMA_NO_AUTOSAVE=1 GRANDMA_NO_HOOK=1 PATH="$SLOW:$CB2:$PATH" HOME="$TMP/fh6" "$GBIN" globex
+el=$(( $(date +%s) - t0 ))
+assert_rc 0 "the launch still succeeds with a hanging gh"
+[ "$el" -le 8 ] && ok "a dead network cost ${el}s, not a hung prompt" \
+                || fail "first-poll cap did not hold: took ${el}s"
+
 section "notice — prints the cached share, and honors its opt-out"
 capture notice "$H3"
 assert_rc 0 "the banner runs under set -u"
