@@ -24,6 +24,10 @@
   username, not an address). `--to` also accepts an email: one saved against a contact
   resolves from your own book, and an unseen one is looked up on GitHub, which only matches
   addresses people have made public on their profile. A miss explains why and how to fix it.
+- Fixed: `grandma knit pull` also picks up a share repo you already have access to, not only
+  ones with a pending invitation. The invitation email has an Accept button, and clicking it
+  consumes the invitation, so the previous behaviour was to find nothing and say nothing
+  about why.
 - Fixed: only a real sweater can be loaded. Any top-level directory in the memory home used to
   resolve as one, so `grandma proposals` assembled every sweater's pending proposals into a
   single session. Resolution now goes through `list_scopes`, in both the launcher and

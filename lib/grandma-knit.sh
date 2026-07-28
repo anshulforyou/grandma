@@ -544,7 +544,8 @@ cmd_pull() {
 
   if dry; then
     say "would accept pending ${REPO_PREFIX}* invitations, clone them under $KNIT/in/,"
-    say "refresh clones already there, and write one proposal per new teammate share"
+    say "pick up any ${REPO_PREFIX}* repo you already have access to, refresh clones already"
+    say "there, and write one proposal per new teammate share"
     exit 0
   fi
 
@@ -567,7 +568,22 @@ cmd_pull() {
       || say "could not clone $full"
   done <<< "$invs"
 
-  # 2. refresh everything we already have, and ingest what is new
+  # 2. pick up knit repos we can already reach but have never cloned. This is the ordinary
+  # case, not an edge one: the invitation email has an Accept button, and clicking it is the
+  # obvious thing to do. That consumes the invitation, so step 1 finds nothing and without
+  # this the share would be invisible with no hint as to why.
+  local full dest
+  while IFS= read -r full; do
+    [[ -n "${full:-}" ]] || continue
+    dest="$KNIT/in/$(printf '%s' "$full" | tr '/' '_')"
+    [[ -d "$dest/.git" ]] && continue
+    if gh repo clone "$full" "$dest" >/dev/null 2>&1; then
+      say "found $full (you already had access)"
+    fi
+  done < <(gh api "/user/repos?per_page=100" \
+             --jq ".[] | select(.name | startswith(\"$REPO_PREFIX\")) | .full_name" 2>/dev/null || true)
+
+  # 3. refresh everything we already have, and ingest what is new
   local total=0 d where got
   for d in "$KNIT"/in/*/; do
     [[ -d "$d/.git" ]] || continue

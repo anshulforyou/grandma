@@ -214,6 +214,19 @@ assert_contains ".knit-pending" "the poll adds the rule too (it writes a cache i
 capture env GRANDMA_HOME="$OLDH2" bash -c 'cd "$0" && git status --porcelain | grep "^??" | grep knit || true' "$OLDH2"
 assert_not_contains ".knit" "and nothing knit-related shows up as untracked cruft"
 
+section "pull — a repo you already have access to is picked up, not just pending invitations"
+# The ordinary case, not an edge one: the invitation email has an Accept button, and clicking
+# it consumes the invitation. Without this, the share is invisible and nothing says why.
+H4="$TMP/home4"; make_fixture_home "$H4"
+printf '[]\n' > "$GHROOT/invitations.json"          # nothing pending: accepted on github.com
+capture env GRANDMA_HOME="$H4" GH_FAKE_LOGIN=mate "$GBIN" knit pull
+assert_rc 0 "pull runs with no pending invitation"
+assert_contains "you already had access" "it finds the repo anyway"
+assert_contains "proposal from" "and the share still lands as a proposal"
+n="$(ls -1 "$H4/proposals/"*knit*.md 2>/dev/null | wc -l | tr -d ' ')"
+[ "$n" -ge 1 ] && ok "the teammate's memory is reviewable" || fail "no knit proposal landed"
+fake_gh_invitation "$GHROOT" 4242 testuser "testuser/grandma-knit-yard"   # restore shared state
+
 section "knit — the memory home keeps share clones out of its history"
 capture cat "$H/.gitignore"
 assert_contains ".knit/" "the working copies are gitignored"
