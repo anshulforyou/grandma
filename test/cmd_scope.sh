@@ -15,6 +15,9 @@
 #   4. Those globs matched on a bare prefix, so a sweater matched every longer sweater name:
 #      reviewing `home` listed `home-ops` proposals and --clear would have deleted them.
 set -uo pipefail
+# Nothing here is interactive, so detach stdin: a child that reads it would otherwise block
+# (or swallow the caller's input) depending on how the suite was invoked.
+exec </dev/null
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE="$(cd "$HERE/.." && pwd)"
 . "$HERE/lib/assert.sh"
@@ -35,7 +38,7 @@ capture env GRANDMA_DRY_RUN=1 "$GBIN" proposals
 assert_rc 2 "'grandma proposals' is refused, not loaded as a sweater"
 assert_not_contains "memory: proposals loaded" "it never assembles a bundle"
 assert_not_contains "BEGIN proposals/" "and no other sweater's content rides along"
-assert_contains "Pick another name" "and it says why rather than erroring cryptically"
+assert_contains "grandma reserves" "and it says why rather than erroring cryptically"
 
 capture env GRANDMA_DRY_RUN=1 "$GBIN" watches
 assert_rc 2 "'grandma watches' is refused too"
@@ -178,23 +181,40 @@ section "naming — a reserved name is refused at the real call site, not just i
 # scope_name_is_reserved is unit-tested below, but a check nothing calls is not a check.
 # The refusal happens BEFORE the terminal branch, so it is reachable without a pty and a
 # script gets the same answer a person does.
-capture env GRANDMA_HOME="$H" "$GBIN" writing
-assert_rc 2 "'grandma writing' exits 2 instead of offering to knit it"
-assert_contains "is a word grandma's own engine uses" "and says why"
+capture env GRANDMA_HOME="$H" GRANDMA_DRY_RUN=1 "$GBIN" proposals
+assert_rc 2 "'grandma proposals' exits 2 instead of offering to knit it"
+assert_contains "grandma reserves" "and says why it is refused"
 assert_no_file "$H/writing" "no sweater directory was created"
-capture env GRANDMA_HOME="$H" "$GBIN" log
-assert_rc 2 "same for 'log'"
-capture env GRANDMA_HOME="$H" "$GBIN" acme-payments
-assert_rc 1 "an ordinary unknown name still gets the normal knit-it offer path (exit 1)"
-assert_contains "no sweater" "with the usual message"
+
+# The names grandma's own docs hand people as examples MUST still work. The first cut of this
+# check scanned the engine source and refused all of these, which would have been worse than
+# the latent problem it was guarding against.
+for name in job-search work personal home client acme reddit side-projects; do
+  capture env GRANDMA_HOME="$H" GRANDMA_DRY_RUN=1 "$GBIN" "$name" </dev/null
+  assert_rc 1 "'$name' is NOT refused (it reaches the normal unknown-sweater path)"
+  assert_contains "no sweater" "and gets the usual knit-it message"
+done
+
+section "naming — a folder with no scope: frontmatter is explained, not silently hidden"
+# Resolution now goes through list_scopes, which requires frontmatter. A folder that lacks it
+# used to resolve; now it does not. Someone whose files are sitting right there must be told
+# why, not offered to knit a sweater that looks like it already exists.
+mkdir -p "$H/legacy"
+printf '# legacy facts\n- notes with no frontmatter\n' > "$H/legacy/facts.md"
+capture env GRANDMA_HOME="$H" GRANDMA_DRY_RUN=1 "$GBIN" legacy </dev/null
+assert_rc 1 "a frontmatter-less folder does not launch"
+assert_contains "no file in it carries" "it explains that frontmatter is missing"
+assert_contains "scope: legacy" "and names the exact line to add"
+assert_not_contains "knit it now" "it does NOT offer to knit over existing files"
+rm -rf "$H/legacy"
 
 section "naming — a sweater named after an engine word is refused up front"
-for name in watch review writing log; do
+for name in watch review proposals global; do
   capture env GRANDMA_HOME="$H" bash -c \
     '. "'"$ENGINE"'/lib/grandma-lib.sh"; ENGINE="'"$ENGINE"'"; ROOT="'"$H"'"; scope_name_is_reserved "'"$name"'"'
-  assert_rc 0 "'$name' is recognised as reserved (it would break grandma test forever)"
+  assert_rc 0 "'$name' is recognised as reserved (a subcommand, or a folder grandma owns)"
 done
-for name in globex home-ops acme-payments; do
+for name in globex home-ops acme-payments job-search work personal reddit; do
   capture env GRANDMA_HOME="$H" bash -c \
     '. "'"$ENGINE"'/lib/grandma-lib.sh"; ENGINE="'"$ENGINE"'"; ROOT="'"$H"'"; scope_name_is_reserved "'"$name"'"'
   assert_rc 1 "'$name' is allowed (a normal sweater name is not blocked)"

@@ -76,6 +76,25 @@ session does not degrade into an agent that forgot who you are.
 
 The suite runs as a git pre-commit gate on the engine and in CI on macOS and Linux.
 
+### A known limit in the purity check
+
+Check 2 greps each sweater name as a whole word against the engine's source, and it counts
+prompt files as source. Prompt files are prose, full of example words. So a sweater named
+after an ordinary word fails it: `work` matches ten files, and `job-search`, `reddit` and
+`acme` all match too, which is unfortunate given those are the examples the README and the
+new-sweater prompt hand people.
+
+This is a false positive, not a leak. A leak is engine LOGIC branching on a sweater name.
+A prompt that says "an area like job-search" is documentation. The real fix is to narrow
+check 2 to executable logic, and to purge the example words from prompt prose per the rule
+this repo already sets for itself. Until then, naming a sweater after a common word makes
+`grandma test` fail with no cure but a rename.
+
+Grandma does NOT try to prevent this by refusing such names. That was tried and reverted:
+refusing every word the engine mentions rejected the names the product recommends, which is
+worse than the problem. Only structurally impossible names are refused, the subcommands and
+the folders grandma owns inside the memory home.
+
 ## War stories, kept on purpose
 
 Grandma's guards were not designed in advance. Each one is a scar, and knowing them is

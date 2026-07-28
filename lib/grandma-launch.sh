@@ -314,9 +314,19 @@ if ! resolve_scope_dir "$SCOPE" >/dev/null 2>&1; then
   # engine uses in its own logic fails `grandma test` forever, so offering to knit one (or
   # telling a script to go knit one) is inviting a break that only a rename undoes.
   if scope_name_is_reserved "$SCOPE"; then
-    printf "\n  '%s' is a word grandma's own engine uses, so a sweater by that name would\n" "$SCOPE" >&2
-    printf "  permanently fail 'grandma test'. Pick another name for it.\n\n" >&2
+    printf "\n  '%s' is a name grandma reserves (a subcommand, or a folder it owns in your\n" "$SCOPE" >&2
+    printf "  memory home), so a sweater by that name could never be loaded. Pick another.\n\n" >&2
     exit 2
+  fi
+  # A directory IS there, it just has no `scope:` frontmatter, so nothing treats it as a
+  # sweater: not the picker, not the integrity suite, and now not the launcher either. Say
+  # that plainly. Offering to knit it, or saying "no sweater yet", would read as "your memory
+  # is gone" to someone whose files are sitting right there.
+  if [[ -d "$ROOT/$SCOPE" ]]; then
+    printf "\n  '%s' is a folder in your memory home, but no file in it carries a\n" "$SCOPE" >&2
+    printf "  'scope: %s' frontmatter line, so grandma does not treat it as a sweater.\n" "$SCOPE" >&2
+    printf "  Add that line to %s/facts.md (or any .md directly inside it) and re-run.\n\n" "$SCOPE" >&2
+    exit 1
   fi
   if [[ -t 0 && "${GRANDMA_DRY_RUN:-0}" != "1" ]]; then
     printf "\n  no sweater '%s' yet. knit it now? [Y/n] " "$SCOPE" >&2

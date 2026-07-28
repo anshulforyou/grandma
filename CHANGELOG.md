@@ -15,8 +15,10 @@
   aarc` could not find), and matching was by bare prefix (so reviewing `home` listed `home-ops`
   proposals and `--clear` would have deleted them). Proposals are now matched on the `scope=`
   header the distiller writes inside them, which is exact.
-- Fixed: `grandma` refuses to knit a sweater named after a word the engine uses in its own
-  logic. Such a name makes `grandma test` fail permanently, with a rename as the only cure.
+- Fixed: `grandma` refuses to knit a sweater whose name is structurally unusable, meaning a
+  subcommand (it would be shadowed and never launch) or a folder grandma owns in your memory
+  home (loading it would assemble whatever is inside). A folder that exists but carries no
+  `scope:` frontmatter now says so instead of offering to knit over it.
 
 - `grandma watch`: tool-usage lens. Metrics now count calls per tool name, not just the
   total, so `grandma watch status` shows your top tools live and the final report can

@@ -228,21 +228,26 @@ resolve_project() {
   elif [[ $nbest -gt 1 ]]; then RP_STATUS=AMBIG; fi
 }
 
-# scope_name_is_reserved <name> — would a sweater by this name break the engine?
-# The core-purity invariant greps every sweater name as a word against the engine's own
-# source, so a sweater named after a word the engine uses in its logic (`watch`, `review`,
-# `log`, `writing`, ...) makes `grandma test` fail permanently, with no way out but a
-# rename. Catching it at creation costs one comparison; discovering it later costs a
-# migration. Checked against the engine itself, so it stays correct as commands are added.
+# scope_name_is_reserved <name> — is this name structurally unusable as a sweater?
+#
+# Deliberately NARROW: the CLI subcommands (a sweater by that name is shadowed and can never
+# be launched) and the directories grandma owns inside the memory home (loading one would
+# assemble whatever sits in it). Those two lists are facts about the engine, not judgements.
+#
+# It does NOT scan the engine's source for the name, which was the first attempt. That
+# refused `job-search`, `work`, `personal`, `home`, `client`, `acme` and `reddit` — the exact
+# names grandma's own README and prompts hand people as examples. Those names really do fail
+# the core-purity invariant today, but the defect there is the invariant matching prose in
+# prompt files rather than engine logic, and the cure is to fix that check, not to refuse the
+# names the product recommends. Tracked separately; see docs/architecture.md.
 scope_name_is_reserved() {
-  local q f
+  local q
   q="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
   [[ -n "$q" ]] || return 0
-  case "$q" in global|proposals|watches|prompts|templates|assets|docs|lib|bin|test|hooks) return 0 ;; esac
-  for f in "$ENGINE"/lib/*.sh "$ENGINE"/prompts/*.md "$ENGINE"/bin/grandma; do
-    [[ -f "$f" ]] || continue
-    grep -vE '^[[:space:]]*#' "$f" 2>/dev/null | grep -iqE "\b${q}\b" && return 0
-  done
+  case "$q" in
+    init|save|review|search|ingest|watch|test|doctor|completions|update|version|help) return 0 ;;
+    global|proposals|watches|templates) return 0 ;;
+  esac
   return 1
 }
 
