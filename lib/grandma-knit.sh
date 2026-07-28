@@ -93,6 +93,82 @@ find_project_scope() {
   return 1
 }
 
+# --------------------------------------------------------------- gh setup ----
+# knit's transport is the user's own GitHub, reached through the gh CLI. For someone who has
+# never installed it, "no usable gh CLI" is a dead end naming a tool they have not heard of.
+# These walk them through it instead: say what is missing, why knit needs it, and offer to do
+# it for them. Installing software is a real action, so it always asks first, and it only
+# asks on a terminal. Nothing here runs unattended.
+
+# gh_install_cmd — the install command for this machine, or empty when we cannot tell.
+# Printed as well as run, so the user can see exactly what they are agreeing to.
+gh_install_cmd() {
+  if command -v brew >/dev/null 2>&1; then echo "brew install gh"
+  elif command -v apt-get >/dev/null 2>&1; then echo "sudo apt-get update && sudo apt-get install -y gh"
+  elif command -v dnf >/dev/null 2>&1; then echo "sudo dnf install -y gh"
+  elif command -v pacman >/dev/null 2>&1; then echo "sudo pacman -S --noconfirm github-cli"
+  elif command -v zypper >/dev/null 2>&1; then echo "sudo zypper install -y gh"
+  fi
+}
+
+# knit_explain_gh — why this tool is being asked for at all.
+knit_explain_gh() {
+  say ""
+  say "knit shares memory through YOUR OWN GitHub: a private repo only you and the people"
+  say "you invite can see. There is no grandma server and no grandma account, which is why"
+  say "it needs the GitHub CLI (gh) to talk to GitHub on your behalf."
+}
+
+# knit_require_gh — make sure gh exists and is logged in, offering to fix whichever is
+# missing. Returns 0 when knit can proceed. Never installs or logs in without a yes.
+knit_require_gh() {
+  local cmd ans
+  if ! command -v gh >/dev/null 2>&1; then
+    knit_explain_gh
+    say ""
+    cmd="$(gh_install_cmd)"
+    if [[ -z "$cmd" ]]; then
+      say "The GitHub CLI is not installed, and I cannot tell how to install it on this system."
+      say "Install it from https://cli.github.com, then run this again."
+      return 1
+    fi
+    if dry; then say "would offer to install the GitHub CLI with: $cmd"; return 1; fi
+    if [ ! -t 0 ]; then
+      say "The GitHub CLI is not installed. Install it with:  $cmd"
+      say "Then run this again. (Or skip GitHub entirely: grandma knit share ... --file <path>)"
+      return 1
+    fi
+    printf '  The GitHub CLI is not installed. Install it now with:\n    %s\n  [y/N] ' "$cmd" >&2
+    IFS= read -r ans || return 1
+    [[ "${ans:-n}" =~ ^[Yy]$ ]] || { say "no problem. You can also share without GitHub: --file <path>"; return 1; }
+    say "installing..."
+    if ! eval "$cmd" >&2; then
+      say "that did not work. Install it from https://cli.github.com and run this again."
+      return 1
+    fi
+    command -v gh >/dev/null 2>&1 || { say "gh still is not on PATH. Open a new terminal and try again."; return 1; }
+    say "installed."
+  fi
+
+  if ! gh auth status >/dev/null 2>&1; then
+    knit_explain_gh
+    say ""
+    if dry; then say "would offer to run: gh auth login"; return 1; fi
+    if [ ! -t 0 ]; then
+      say "The GitHub CLI is installed but not signed in. Run:  gh auth login"
+      say "Then run this again."
+      return 1
+    fi
+    printf '  You are not signed in to GitHub. Sign in now? It opens your browser. [y/N] ' >&2
+    IFS= read -r ans || return 1
+    [[ "${ans:-n}" =~ ^[Yy]$ ]] || { say "no problem. Sign in later with: gh auth login"; return 1; }
+    gh auth login || { say "sign-in did not complete. Try again with: gh auth login"; return 1; }
+    gh auth status >/dev/null 2>&1 || { say "still not signed in. Try: gh auth login"; return 1; }
+    say "signed in."
+  fi
+  return 0
+}
+
 # ------------------------------------------------------------------ strip ------
 # The personal scope never leaves this machine. What goes out is ONE project's memory with
 # every personal signal dropped, and the user sees the exact payload before it moves.
@@ -366,9 +442,10 @@ cmd_share() {
   fi
 
   if ! have_gh; then
-    rm -f "$tmp"
-    say "no usable gh CLI (install it and run 'gh auth login'), so there is no GitHub transport."
-    die "share to a file instead: grandma knit share $sweater $project --file <path>"
+    if ! knit_require_gh; then
+      rm -f "$tmp"
+      exit 1
+    fi
   fi
 
   if dry; then
@@ -539,7 +616,9 @@ cmd_pull() {
     exit 0
   fi
 
-  have_gh || die "no usable gh CLI — pull a handed-over file instead: grandma knit pull --file <path>"
+  if ! have_gh; then
+    knit_require_gh || die "or pull a handed-over file instead: grandma knit pull --file <path>"
+  fi
   local me; me="$(gh_login)"; [[ -n "$me" ]] || die "gh is not logged in (run: gh auth login)"
 
   if dry; then

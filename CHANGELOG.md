@@ -33,6 +33,11 @@
   had been read. The very first check on a machine now runs in the foreground under a tight
   cap (`GRANDMA_KNIT_FIRST_POLL_TIMEOUT`, default 5s, fails open); every later one is
   backgrounded as before.
+- `grandma knit` walks you through the GitHub CLI instead of failing at it. A missing `gh`
+  now explains why knit needs GitHub at all (your own private repo, no grandma server), names
+  the install command for your machine, and offers to run it. A logged-out `gh` offers to sign
+  you in. Both ask first, only on a terminal, and always leave the no-GitHub `--file` route
+  in view.
 - Fixed: only a real sweater can be loaded. Any top-level directory in the memory home used to
   resolve as one, so `grandma proposals` assembled every sweater's pending proposals into a
   single session. Resolution now goes through `list_scopes`, in both the launcher and

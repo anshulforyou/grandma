@@ -235,15 +235,43 @@ assert_rc 0 "the integrity invariants still pass with knit in use"
 assert_contains "knit guarded" "the knit invariant runs"
 
 # ------------------------------------------------------------- no gh ----------
-section "no usable gh — share and pull say so and point at the file handover"
+section "gh not signed in — explained and offered, not a dead end"
+# For someone who has never used gh, "no usable gh CLI" names a tool they have not heard of
+# and stops. It has to say what is missing, why knit needs it, and offer to fix it.
 BADBIN="$TMP/badbin"; mkdir -p "$BADBIN"
 printf '#!/usr/bin/env bash\nexit 1\n' > "$BADBIN/gh"; chmod +x "$BADBIN/gh"
 capture env GRANDMA_HOME="$H" PATH="$BADBIN:$PATH" "$GBIN" knit share home-ops yard --to mate --yes
-assert_rc 1 "share exits 1 when gh cannot be used"
-assert_contains "--file" "and points at the file handover instead"
+assert_rc 1 "share stops when gh cannot be used"
+assert_contains "YOUR OWN GitHub" "it explains why knit needs GitHub at all"
+assert_contains "no grandma server" "and that there is no service in the middle"
+assert_contains "gh auth login" "and gives the exact command to sign in"
 capture env GRANDMA_HOME="$H" PATH="$BADBIN:$PATH" "$GBIN" knit pull
-assert_rc 1 "pull exits 1 when gh cannot be used"
-assert_contains "--file" "and points at the file handover instead"
+assert_rc 1 "pull stops too"
+assert_contains "gh auth login" "with the same guidance"
+assert_contains "--file" "and the no-GitHub escape hatch is still offered"
+
+section "gh setup — a dry run offers nothing and installs nothing"
+capture env GRANDMA_HOME="$H" GRANDMA_DRY_RUN=1 PATH="$BADBIN:$PATH" "$GBIN" knit pull
+assert_contains "would offer to run: gh auth login" "a dry run only says what it would do"
+
+section "gh missing entirely — explained, and the install command named for this machine"
+# PATH is narrowed to nothing but the few externals the check itself needs, so `gh` is
+# genuinely absent whatever the host (it is in /usr/bin on CI, elsewhere on macOS).
+EMPTY="$TMP/emptybin"; mkdir -p "$EMPTY"
+for t in uname brew apt-get dnf pacman zypper; do
+  src="$(command -v "$t" 2>/dev/null)" && ln -sf "$src" "$EMPTY/$t" 2>/dev/null
+done
+# extract the functions FIRST, while sed is still reachable
+sed -n '/^gh_install_cmd()/,/^}/p;/^knit_explain_gh()/,/^}/p;/^knit_require_gh()/,/^}/p' \
+  "$ENGINE/lib/grandma-knit.sh" > "$TMP/ghfn.sh"
+capture env PATH="$EMPTY" /bin/bash -c '
+  say() { printf "  %s\n" "$1" >&2; }
+  dry() { return 1; }
+  . "'"$TMP"'/ghfn.sh"
+  knit_require_gh </dev/null; echo "rc=$?"'
+assert_contains "YOUR OWN GitHub" "a missing gh is explained the same way"
+assert_contains "not installed" "it says the CLI is missing"
+assert_contains "rc=1" "and stops rather than proceeding without it"
 
 # ------------------------------------------------------------- contacts -------
 section "contacts — the book starts empty and explains itself"
