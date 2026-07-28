@@ -38,6 +38,14 @@
   the install command for your machine, and offers to run it. A logged-out `gh` offers to sign
   you in. Both ask first, only on a terminal, and always leave the no-GitHub `--file` route
   in view.
+- Desktop notifications now say what to run. A macOS notification sent through `osascript` is
+  attributed to Script Editor and has no click action at all, so clicking one opened an empty
+  Script Editor window. The command is now in the notification body, and when
+  `terminal-notifier` is installed it is used instead, because that one really can run
+  something on click.
+- `grandma knit` sends a desktop notification the moment a share turns up, as well as the
+  line at launch, so you hear about it without opening grandma first. Once per share, not
+  once per check.
 - Fixed: only a real sweater can be loaded. Any top-level directory in the memory home used to
   resolve as one, so `grandma proposals` assembled every sweater's pending proposals into a
   single session. Resolution now goes through `list_scopes`, in both the launcher and

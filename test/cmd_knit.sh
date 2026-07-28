@@ -373,7 +373,7 @@ capture env GRANDMA_HOME="$H3" GH_FAKE_LOGIN=mate "$ENGINE/lib/grandma-knit.sh" 
 assert_rc 0 "poll exits 0"
 capture cat "$H3/.knit-pending"
 assert_contains "someone shared project memory with you" "the cache holds a human line"
-assert_contains "grandma knit pull" "and it names the command that acts on it"
+assert_not_contains "pull it:" "the cache holds the FACT only, not the call to action"
 assert_file "$H3/.knit-checked" "the poll stamps when it last ran"
 
 notice() {  # grandma_knit_notice on its own, under set -u, exactly as the launcher calls it
@@ -412,6 +412,38 @@ assert_rc 0 "the banner runs under set -u"
 assert_contains "someone shared project memory" "launch surfaces the waiting share"
 capture notice "$H3" GRANDMA_NO_KNIT_CHECK=1
 assert_not_contains "someone shared" "GRANDMA_NO_KNIT_CHECK=1 silences it"
+
+section "notice — a new share also fires a desktop notification, once"
+# The banner only lands when they next open grandma. A share should reach them sooner, and
+# the notification has to say what to run, since a macOS notification has no click action.
+H7="$TMP/home7"; make_fixture_home "$H7"
+NBIN="$TMP/notifbin"; mkdir -p "$NBIN"
+# bake the absolute path in: the stub runs in its own environment, TMP is not exported
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s"\nexit 0\n' "$TMP/notified.log" > "$NBIN/osascript"
+chmod +x "$NBIN/osascript"
+fake_gh_invitation "$GHROOT" 77 someone "someone/grandma-knit-yard"
+: > "$TMP/notified.log"
+capture env GRANDMA_HOME="$H7" GH_FAKE_LOGIN=mate PATH="$NBIN:$PATH" "$ENGINE/lib/grandma-knit.sh" poll
+assert_rc 0 "the poll runs"
+capture cat "$TMP/notified.log"
+assert_contains "someone shared project memory" "a notification is sent for the new share"
+assert_contains "grandma knit pull" "and it says exactly what to run"
+assert_contains "grandma knit" "titled so it is obvious which part of grandma is talking"
+
+n1=$(grep -c "shared project memory" "$TMP/notified.log")
+capture env GRANDMA_HOME="$H7" GH_FAKE_LOGIN=mate PATH="$NBIN:$PATH" "$ENGINE/lib/grandma-knit.sh" poll
+n2=$(grep -c "shared project memory" "$TMP/notified.log")
+[ "$n1" = "1" ] && [ "$n2" = "1" ] && ok "the same share is not re-notified on every poll" \
+  || fail "expected 1 notification across two polls, got $n1 then $n2"
+
+section "notify_user — the command rides in the body when the notifier cannot click"
+# terminal-notifier can run something on click; osascript cannot, so the body must carry it.
+capture env bash -c '
+  . "'"$ENGINE"'/lib/grandma-lib.sh"
+  PATH="'"$NBIN"':$PATH"; GRANDMA_HOME="'"$H7"'"
+  notify_user "grandma test" "something happened" "grandma do-the-thing"'
+capture cat "$TMP/notified.log"
+assert_contains "something happened — run: grandma do-the-thing" "the body is self-sufficient"
 
 section "notice — throttled: a fresh check does not re-poll, a stale one does"
 : > "$H3/.knit-pending"; date +%s > "$H3/.knit-checked"

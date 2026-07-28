@@ -321,7 +321,8 @@ $(cat "$dir/data/digests.md" 2>/dev/null || echo '(no digests collected)')" \
       --append-system-prompt "$RSYS" 2>/dev/null ) > "$dir/report.md" || true
     if [[ -s "$dir/report.md" ]]; then
       set_field "$sj" status '"complete"'
-      notify_user "grandma watch" "Report ready: $(basename "$dir")" || true
+      notify_user "grandma watch" "Report ready: $(basename "$dir")" \
+        "grandma watch report $(basename "$dir")" || true
     else
       rm -f "$dir/report.md"
     fi

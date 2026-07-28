@@ -395,7 +395,7 @@ grandma_knit_notice() {
   pf="$(knit_pending_file)"
   if [[ -s "$pf" ]]; then
     while IFS= read -r line; do
-      [[ -n "$line" ]] && printf '  🧶 %s\n' "$line" >&2
+      [[ -n "$line" ]] && printf '  🧶 %s — pull it: grandma knit pull\n' "$line" >&2
     done < "$pf"
   fi
   command -v gh >/dev/null 2>&1 || return 0
@@ -420,7 +420,7 @@ grandma_knit_notice() {
     "$ENGINE/lib/grandma-knit.sh" poll >/dev/null 2>&1 || true
   if [[ -s "$pf" ]]; then
     while IFS= read -r line; do
-      [[ -n "$line" ]] && printf '  🧶 %s\n' "$line" >&2
+      [[ -n "$line" ]] && printf '  🧶 %s — pull it: grandma knit pull\n' "$line" >&2
     done < "$pf"
   fi
   return 0
@@ -436,25 +436,43 @@ file_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || ech
 file_size()  { stat -c %s "$1" 2>/dev/null || stat -f %z "$1" 2>/dev/null || echo 0; }
 epoch_date() { date -r "$1" '+%Y-%m-%d' 2>/dev/null || date -d "@$1" '+%Y-%m-%d' 2>/dev/null || echo "$1"; }
 notify_user() {
-  # title, body — macOS notification, Linux notify-send, else log-and-skip.
-  # Returns 0 if a backend delivered, 1 if none did (and logs why). A detached watch
-  # tick has no terminal, so failures must land in a file to be verifiable, not /dev/null.
+  # title, body, [command] — a desktop notification, and what to run about it.
+  #
+  # The third argument is the point. A notification you cannot act on is worse than none:
+  # `osascript display notification` is attributed to Script Editor and carries NO click
+  # action at all, so clicking one opens Script Editor's empty open-file panel, which reads
+  # as grandma being broken. That cannot be fixed by any argument to osascript.
+  #
+  # So: when terminal-notifier is present, use it, because it can actually run something on
+  # click. Otherwise fall back to osascript and put the command IN THE BODY, so the
+  # notification is self-sufficient and there is no reason to click it.
+  #
+  # Returns 0 if a backend delivered, 1 if none did (and logs why). A detached watch tick has
+  # no terminal, so failures must land in a file to be verifiable, not /dev/null.
   local root="${GRANDMA_HOME:-$HOME/.grandma}" log="${GRANDMA_HOME:-$HOME/.grandma}/.distill/notify.log" err
+  local title="$1" body="$2" cmd="${3:-}"
+  if command -v terminal-notifier >/dev/null 2>&1; then
+    if terminal-notifier -title "$title" -message "$body" -sound Glass \
+         ${cmd:+-execute "$cmd"} >/dev/null 2>&1; then return 0; fi
+  fi
   if command -v osascript >/dev/null 2>&1; then
-    osascript -e "display notification \"$2\" with title \"$1\" sound name \"Glass\"" 2>/dev/null && return 0
+    local shown="$body"
+    [[ -n "$cmd" ]] && shown="$body — run: $cmd"
+    osascript -e "display notification \"${shown//\"/\\\"}\" with title \"$title\" sound name \"Glass\"" 2>/dev/null && return 0
   fi
   if command -v notify-send >/dev/null 2>&1; then
     # A backgrounded/nohup'd tick can inherit a shell with no session bus (SSH, tty, cron).
     # notify-send then fails "cannot connect to bus". Derive it from the runtime dir if we can.
     [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" && -S "${XDG_RUNTIME_DIR:-}/bus" ]] \
       && export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
-    if err="$(notify-send -a grandma "$1" "$2" 2>&1)"; then return 0; fi
+    local lbody="$body"; [[ -n "$cmd" ]] && lbody="$body — run: $cmd"
+    if err="$(notify-send -a grandma "$title" "$lbody" 2>&1)"; then return 0; fi
     mkdir -p "$root/.distill" 2>/dev/null
     printf '%s notify-send failed: %s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$err" >> "$log" 2>/dev/null
     return 1
   fi
   mkdir -p "$root/.distill" 2>/dev/null
   printf '%s no notifier (install libnotify-bin / libnotify): [%s] %s\n' \
-    "$(date '+%Y-%m-%dT%H:%M:%S')" "$1" "$2" >> "$log" 2>/dev/null
+    "$(date '+%Y-%m-%dT%H:%M:%S')" "$title" "$body" >> "$log" 2>/dev/null
   return 1
 }

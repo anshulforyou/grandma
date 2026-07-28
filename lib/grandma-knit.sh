@@ -801,7 +801,7 @@ cmd_poll() {
   local lines tmp rc=0
   lines="$(run_bounded "${GRANDMA_KNIT_POLL_TIMEOUT:-20}" \
     gh api /user/repository_invitations \
-      --jq ".[] | select(.repository.name | startswith(\"$REPO_PREFIX\")) | \"\(.inviter.login) shared project memory with you (\(.repository.full_name)) — pull it: grandma knit pull\"")" || rc=$?
+      --jq ".[] | select(.repository.name | startswith(\"$REPO_PREFIX\")) | \"\(.inviter.login) shared project memory with you (\(.repository.full_name))\"")" || rc=$?
 
   # Fail open. A timeout, a logged-out gh or an API hiccup leaves the previous cache exactly as
   # it was: the banner is a convenience, and a bad network must never look like "nothing waiting".
@@ -809,6 +809,15 @@ cmd_poll() {
   # mean no invitations are pending (they were accepted, or declined, elsewhere).
   if [[ "$rc" -eq 0 ]]; then
     if [[ -n "$lines" ]]; then
+      # Notify only for shares that were not in the cache last time. The poll runs on every
+      # stale launch, so notifying on the whole list would re-ping the same share forever.
+      local prev line
+      prev="$(cat "$ROOT/.knit-pending" 2>/dev/null || true)"
+      while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        printf '%s\n' "$prev" | grep -Fqx "$line" && continue
+        notify_user "grandma knit" "$line" "grandma knit pull" || true
+      done <<< "$lines"
       tmp="$ROOT/.knit-pending.tmp"
       printf '%s\n' "$lines" > "$tmp" 2>/dev/null && mv "$tmp" "$ROOT/.knit-pending" 2>/dev/null
     else
