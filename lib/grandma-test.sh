@@ -182,6 +182,39 @@ hits2="$(grep -rn "$up" "$ENGINE/lib" "$ENGINE/prompts" "$ENGINE/bin" "$ENGINE/t
 [[ -n "$hits2" ]] && { bad "hardcoded user path in engine: $(echo "$hits2" | head -3)"; pd_ok=0; }
 [[ "$pd_ok" == "1" ]] && pass "engine free of personal names and user paths"
 
+# ---- 13. Only a real sweater can be loaded, and only its own proposals ----
+# Both halves of this were invisible to the suite before: the isolation check (1) only ever
+# tests names that list_scopes returns, so a directory it excludes could resolve as a
+# sweater and assemble anything sitting in it, and nothing looked at proposal filenames.
+echo "== 13. scope resolution (non-sweaters rejected, proposals not shared) =="
+sr_ok=1
+grep -q 'done < <(list_scopes)' "$ENGINE/lib/grandma-lib.sh" 2>/dev/null || { bad "resolve_scope_dir does not resolve through list_scopes (any directory can load as a sweater)"; sr_ok=0; }
+grep -q 'canonical_scope' "$ENGINE/lib/grandma-save.sh" 2>/dev/null || { bad "save.sh names proposals from the typed scope, not the sweater's own spelling (case-mismatched proposals go unseen)"; sr_ok=0; }
+for f in lib/grandma-review.sh lib/grandma-launch.sh; do
+  grep -qE '\$\{?SCOPE\}?"?\*\.md|\$FILE"\*\.md' "$ENGINE/$f" 2>/dev/null && { bad "$f still globs proposals on a bare scope prefix (a sweater matches longer sweater names)"; sr_ok=0; }
+done
+if [[ "$HOME_OK" == "1" ]]; then
+  for d in proposals watches; do
+    [[ -d "$ROOT/$d" ]] || continue
+    if (cd "$ENGINE" && ROOT="$ROOT" bash -c '. lib/grandma-lib.sh; resolve_scope_dir "'"$d"'"' >/dev/null 2>&1); then
+      bad "'$d' resolves as a sweater (loading it would assemble content from every scope)"; sr_ok=0
+    fi
+  done
+fi
+[[ "$sr_ok" == "1" ]] && pass "only real sweaters resolve, and proposals are matched per sweater"
+
+# ---- 14. Installed hooks survive a shell (names with spaces and parentheses) ----
+echo "== 14. hook commands are shell-safe =="
+hq_ok=1
+grep -q 'hook_cmd' "$ENGINE/lib/grandma-lib.sh" 2>/dev/null || { bad "no hook_cmd helper (hook args are interpolated raw)"; hq_ok=0; }
+grep -q "printf '%q'" "$ENGINE/lib/grandma-lib.sh" 2>/dev/null || { bad "hook_cmd does not quote its arguments"; hq_ok=0; }
+for f in install_rehydrate_hook install_session_end_hook install_precompact_hook; do
+  grep -A6 "^$f()" "$ENGINE/lib/grandma-launch.sh" 2>/dev/null | grep -q 'hook_cmd' \
+    || { bad "$f builds its command without hook_cmd (a project name with a space breaks it silently)"; hq_ok=0; }
+done
+grep -q 'startswith($s)' "$ENGINE/lib/grandma-lib.sh" 2>/dev/null || { bad "install_hook does not prune a stale entry for the same script (a broken command would survive the fix)"; hq_ok=0; }
+[[ "$hq_ok" == "1" ]] && pass "hook commands are quoted, and a stale entry is replaced not duplicated"
+
 echo
 if [[ "$fail" == "0" ]]; then echo "grandma-test: ALL PASS"; else echo "grandma-test: FAILURES ABOVE"; fi
 exit "$fail"

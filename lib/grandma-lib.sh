@@ -2,15 +2,70 @@
 # grandma-lib — shared helpers. Source this; it expects $ROOT (grandma repo root) set.
 
 # Resolve a scope name (case-insensitive) to its dir under ROOT. Prints dir or fails.
+# It resolves through list_scopes, NOT a bare directory match, so only a real sweater can
+# be loaded. Matching any directory meant `grandma proposals` assembled every sweater's
+# pending proposals into one session, and `grandma watches` / `grandma docs` did the same
+# for whatever happened to sit in the home. The isolation suite could never catch it:
+# list_scopes excludes those directories, so they were never among the scopes under test.
 resolve_scope_dir() {
-  local d name
-  for d in "$ROOT"/*/; do
-    name="$(basename "$d")"; [[ "$name" == "global" ]] && continue
-    if [[ "$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')" == "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" ]]; then
-      printf '%s' "${d%/}"; return 0
+  local name q
+  q="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    if [[ "$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')" == "$q" ]]; then
+      printf '%s' "$ROOT/$name"; return 0
+    fi
+  done < <(list_scopes)
+  return 1
+}
+
+# canonical_scope <name> — the sweater's own spelling, lowercased. Everything that builds
+# or matches a per-sweater FILENAME must go through this, because resolution is
+# case-insensitive while filename globbing is not: `grandma Aarc` used to write
+# Aarc-<id>.md, which `grandma review aarc` and the launch-time review offer could never
+# see again. Prints nothing and fails when the name is not a sweater.
+canonical_scope() {
+  local dir; dir="$(resolve_scope_dir "$1")" || return 1
+  basename "$dir" | tr '[:upper:]' '[:lower:]'
+}
+
+# list_proposals <scope> — this sweater's pending proposal files, one path per line (no
+# output when there are none, and none at all when the name is not a sweater).
+#
+# It matches the `# scope=` header the distiller writes INSIDE each proposal, not the
+# filename. Filenames cannot be matched safely: they are <scope>[-<project>]-<stamp>.md and
+# both a sweater and a project may contain dashes, so no prefix pattern separates `home`
+# from `home-ops`. Globbing on a bare prefix meant `grandma review persona` listed
+# personal-chores proposals, `--clear persona` would have deleted them, and the launch-time
+# review offer handed a persona session another sweater's memory to apply. Adding a trailing
+# dash does not fix it either, since `home-` still matches `home-ops-<stamp>.md`.
+# A proposal with no header (hand-written) falls back to the prefix, which is the only thing
+# left to go on.
+list_proposals() {
+  local scope f hdr
+  scope="$(canonical_scope "$1")" || return 0
+  for f in "$ROOT"/proposals/*.md; do
+    [[ -f "$f" ]] || continue
+    # `|| true` is load-bearing: grep exits 1 on a proposal with no scope header, and every
+    # caller runs under `set -euo pipefail`, so without it the first headerless proposal
+    # aborts the whole listing and the sweater silently appears to have nothing pending.
+    hdr="$(sed -n '1,5p' "$f" 2>/dev/null | grep -m1 -oE '^# scope=[^ ]+' | sed 's/^# scope=//' \
+           | tr '[:upper:]' '[:lower:]' || true)"
+    if [[ -n "$hdr" ]]; then
+      [[ "$hdr" == "$scope" ]] && printf '%s\n' "$f"
+    else
+      case "$(basename "$f")" in "$scope"-*) printf '%s\n' "$f" ;; esac
     fi
   done
-  return 1
+  return 0
+}
+
+# read_proposals <scope> — fill the caller's PROPOSAL_FILES array with list_proposals.
+# Kept as a helper because every caller needs the same space-safe read loop.
+# shellcheck disable=SC2034  # PROPOSAL_FILES is the output, read by callers
+read_proposals() {
+  local f; PROPOSAL_FILES=()
+  while IFS= read -r f; do [[ -n "$f" ]] && PROPOSAL_FILES+=("$f"); done < <(list_proposals "$1")
 }
 
 # Normalize a name for fuzzy matching: lowercase, alphanumeric only.
@@ -171,6 +226,66 @@ resolve_project() {
   done < <(project_entries "$reg")
   if   [[ $nbest -eq 1 ]]; then RP_STATUS=OK
   elif [[ $nbest -gt 1 ]]; then RP_STATUS=AMBIG; fi
+}
+
+# scope_name_is_reserved <name> — would a sweater by this name break the engine?
+# The core-purity invariant greps every sweater name as a word against the engine's own
+# source, so a sweater named after a word the engine uses in its logic (`watch`, `review`,
+# `log`, `writing`, ...) makes `grandma test` fail permanently, with no way out but a
+# rename. Catching it at creation costs one comparison; discovering it later costs a
+# migration. Checked against the engine itself, so it stays correct as commands are added.
+scope_name_is_reserved() {
+  local q f
+  q="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  [[ -n "$q" ]] || return 0
+  case "$q" in global|proposals|watches|prompts|templates|assets|docs|lib|bin|test|hooks) return 0 ;; esac
+  for f in "$ENGINE"/lib/*.sh "$ENGINE"/prompts/*.md "$ENGINE"/bin/grandma; do
+    [[ -f "$f" ]] || continue
+    grep -vE '^[[:space:]]*#' "$f" 2>/dev/null | grep -iqE "\b${q}\b" && return 0
+  done
+  return 1
+}
+
+# ---- hook installation (shared by the three installers in the launcher) ----
+
+# hook_cmd <script> [args...] — a hook command line that survives being run by a shell.
+# Sweater and project names carry spaces and parentheses in the wild, and interpolating one
+# raw produced a command that died with a syntax error on every single session, silently:
+# no proposal, no checkpoint, no message. printf %q is the fix, and it is bash 3.2 safe.
+hook_cmd() {
+  local out a; out="$(printf '%q' "$1")"; shift
+  for a in "$@"; do out+=" $(printf '%q' "$a")"; done
+  printf '%s' "$out"
+}
+
+# install_hook <cfg> <event> <matcher> <script> <cmd> <timeout> <async 0|1>
+# Idempotent AND self-healing: it drops any existing entry that runs the same script before
+# adding the current one. Deciding "already present" by exact command match (what this used
+# to do) leaves a previously-installed BROKEN command sitting there and adds a correct one
+# beside it, so the broken one keeps firing and failing forever. Returns 0 and writes
+# nothing when the file already says exactly this. Prints nothing; the caller announces.
+install_hook() {
+  local cfg="$1" ev="$2" matcher="$3" script="$4" cmd="$5" to="$6" async="$7"
+  local base out qscript
+  qscript="$(printf '%q' "$script")"
+  base="$(cat "$cfg" 2>/dev/null || echo '{}')"
+  out="$(printf '%s' "$base" | jq --sort-keys \
+    --arg e "$ev" --arg m "$matcher" --arg s "$script" --arg qs "$qscript" --arg c "$cmd" \
+    --argjson to "$to" --argjson async "$async" '
+      def prune: map(.hooks = ((.hooks // [])
+                     | map(select(((.command // "") | startswith($s)) or
+                                  ((.command // "") | startswith($qs)) | not))))
+                 | map(select(((.hooks // []) | length) > 0));
+      (({"type":"command","command":$c,"timeout":$to})
+        + (if $async == 1 then {"async":true} else {} end)) as $h
+      | {"matcher":$m,"hooks":[$h]} as $entry
+      | .hooks = (.hooks // {})
+      | .hooks[$e] = (((.hooks[$e] // []) | prune) + [$entry])
+    ' 2>/dev/null)" || return 1
+  [[ -n "$out" ]] || return 1
+  [[ "$out" == "$(printf '%s' "$base" | jq --sort-keys . 2>/dev/null)" ]] && return 1
+  mkdir -p "$(dirname "$cfg")"
+  printf '%s' "$out" > "$cfg.tmp" 2>/dev/null && mv "$cfg.tmp" "$cfg"
 }
 
 # Munge an absolute path to its Claude projects dir name (/ -> -).

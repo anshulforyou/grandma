@@ -45,7 +45,8 @@ if [[ "$MODE" == "apply" ]]; then
     FILES=("$PROP/$FILE")
   elif [[ -n "$FILE" ]] && resolve_scope_dir "$FILE" >/dev/null 2>&1; then
     shopt -s nullglob
-    FILES=("$PROP/$FILE"*.md)
+    read_proposals "$FILE"
+    FILES=(${PROPOSAL_FILES[@]+"${PROPOSAL_FILES[@]}"})
     RSCOPE="$FILE"
   fi
   [[ ${#FILES[@]} -gt 0 ]] || { echo "error: no proposal to apply for: ${FILE:-<none>}" >&2; exit 1; }
@@ -90,14 +91,14 @@ fi
 # ---- clear ----
 if [[ "$MODE" == "clear" ]]; then
   shopt -s nullglob
-  files=("$PROP/${SCOPE:+$SCOPE}"*.md); [[ -z "$SCOPE" ]] && files=("$PROP"/*.md)
+  if [[ -n "$SCOPE" ]]; then read_proposals "$SCOPE"; files=(${PROPOSAL_FILES[@]+"${PROPOSAL_FILES[@]}"}); else files=("$PROP"/*.md); fi
   if [[ ${#files[@]} -eq 0 ]]; then echo "no proposals to clear."; exit 0; fi
   rm -f "${files[@]}"; echo "cleared ${#files[@]} proposal(s)."; exit 0
 fi
 
 # ---- list + print ----
 shopt -s nullglob
-if [[ -n "$SCOPE" ]]; then files=("$PROP/$SCOPE"*.md); else files=("$PROP"/*.md); fi
+if [[ -n "$SCOPE" ]]; then read_proposals "$SCOPE"; files=(${PROPOSAL_FILES[@]+"${PROPOSAL_FILES[@]}"}); else files=("$PROP"/*.md); fi
 if [[ ${#files[@]} -eq 0 ]]; then
   echo "no pending proposals${SCOPE:+ for $SCOPE}."
   exit 0
