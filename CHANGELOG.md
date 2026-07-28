@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- New mascot art, rebuilt from a high-resolution transparent source. Same filenames and
+  dimensions, so nothing else changes: the README header stays 440x440 flattened on GitHub
+  dark, and the terminal splash stays 260x260 on black and the same size on disk, which
+  matters because `imgcat` pushes that whole file through the tty on every launch.
 - `grandma knit`: the sharing phase, first cut. `knit share <sweater> <project>` packages your
   memory of one project, strips the personal scope out of it, shows you the exact payload, and
   (only after you say yes) pushes it to a private `grandma-knit-<project>` repo under your own
