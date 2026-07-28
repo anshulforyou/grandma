@@ -35,6 +35,13 @@ source "$ENGINE/lib/grandma-lib.sh"
 # CLI (as in `grandma <name>`), used as the suggested sweater name so the flow proposes it.
 create_new_scope() {
   local suggested="${1:-}"
+  # A name the engine already uses as a word would make `grandma test` fail forever, and the
+  # only cure once memory lives under it is a rename. Refuse up front instead.
+  if [[ -n "$suggested" ]] && scope_name_is_reserved "$suggested"; then
+    printf "\n  '%s' is a word grandma's own engine uses, so a sweater by that name would\n" "$suggested" >&2
+    printf "  permanently fail 'grandma test'. Pick another name for it.\n" >&2
+    exit 2
+  fi
   if [[ -n "$suggested" ]]; then
     printf "\n  Let's knit the '%s' sweater. In a sentence, what is it?\n  (a company, a client, a platform, or an area of your life)\n  > " "$suggested" >&2
   else
@@ -108,17 +115,10 @@ install_rehydrate_hook() {
   local dir="$1" scope="$2"
   [[ "${GRANDMA_NO_HOOK:-0}" == "1" ]] && return 0
   command -v jq >/dev/null 2>&1 || return 0   # jq required; skip quietly if absent
-  local cfg="$dir/.claude/settings.local.json"
-  local cmd="$ENGINE/lib/grandma-rehydrate.sh $scope"
-  local base present
-  base="$(cat "$cfg" 2>/dev/null || echo '{}')"
-  present="$(printf '%s' "$base" | jq -r --arg c "$cmd" \
-    '[.hooks.SessionStart[]? | select(.matcher=="compact") | .hooks[]? | .command] | map(. == $c) | any' 2>/dev/null || echo false)"
-  [[ "$present" == "true" ]] && return 0
-  mkdir -p "$dir/.claude"
-  printf '%s' "$base" | jq --arg c "$cmd" \
-    '.hooks = (.hooks // {}) | .hooks.SessionStart = ((.hooks.SessionStart // []) + [{"matcher":"compact","hooks":[{"type":"command","command":$c,"timeout":15}]}])' \
-    > "$cfg.tmp" 2>/dev/null && mv "$cfg.tmp" "$cfg" && GRANDMA_HOOK_INSTALLED=1
+  local script="$ENGINE/lib/grandma-rehydrate.sh"
+  install_hook "$dir/.claude/settings.local.json" SessionStart compact \
+    "$script" "$(hook_cmd "$script" "$scope")" 15 0 && GRANDMA_HOOK_INSTALLED=1
+  return 0
 }
 
 # Ensure a grandma-launched project has the SessionEnd auto-distill hook (async), so
@@ -128,17 +128,10 @@ install_session_end_hook() {
   local dir="$1" scope="$2" project="$3"
   [[ "${GRANDMA_NO_HOOK:-0}" == "1" || "${GRANDMA_NO_AUTOSAVE:-0}" == "1" ]] && return 0
   command -v jq >/dev/null 2>&1 || return 0
-  local cfg="$dir/.claude/settings.local.json"
-  local cmd="$ENGINE/lib/grandma-session-end.sh $scope $project"
-  local base present
-  base="$(cat "$cfg" 2>/dev/null || echo '{}')"
-  present="$(printf '%s' "$base" | jq -r --arg c "$cmd" \
-    '[.hooks.SessionEnd[]? | .hooks[]? | .command] | map(. == $c) | any' 2>/dev/null || echo false)"
-  [[ "$present" == "true" ]] && return 0
-  mkdir -p "$dir/.claude"
-  printf '%s' "$base" | jq --arg c "$cmd" \
-    '.hooks = (.hooks // {}) | .hooks.SessionEnd = ((.hooks.SessionEnd // []) + [{"matcher":"","hooks":[{"type":"command","command":$c,"async":true,"timeout":600}]}])' \
-    > "$cfg.tmp" 2>/dev/null && mv "$cfg.tmp" "$cfg" && GRANDMA_AUTOSAVE_INSTALLED=1
+  local script="$ENGINE/lib/grandma-session-end.sh"
+  install_hook "$dir/.claude/settings.local.json" SessionEnd "" \
+    "$script" "$(hook_cmd "$script" "$scope" "$project")" 600 1 && GRANDMA_AUTOSAVE_INSTALLED=1
+  return 0
 }
 
 # Ensure a grandma-launched project has the PreCompact checkpoint hook (synchronous), so the
@@ -149,17 +142,10 @@ install_precompact_hook() {
   local dir="$1" scope="$2" project="$3"
   [[ "${GRANDMA_NO_HOOK:-0}" == "1" || "${GRANDMA_NO_AUTOSAVE:-0}" == "1" || "${GRANDMA_NO_CHECKPOINT:-0}" == "1" ]] && return 0
   command -v jq >/dev/null 2>&1 || return 0
-  local cfg="$dir/.claude/settings.local.json"
-  local cmd="$ENGINE/lib/grandma-precompact.sh $scope $project"
-  local base present
-  base="$(cat "$cfg" 2>/dev/null || echo '{}')"
-  present="$(printf '%s' "$base" | jq -r --arg c "$cmd" \
-    '[.hooks.PreCompact[]? | .hooks[]? | .command] | map(. == $c) | any' 2>/dev/null || echo false)"
-  [[ "$present" == "true" ]] && return 0
-  mkdir -p "$dir/.claude"
-  printf '%s' "$base" | jq --arg c "$cmd" \
-    '.hooks = (.hooks // {}) | .hooks.PreCompact = ((.hooks.PreCompact // []) + [{"matcher":"","hooks":[{"type":"command","command":$c,"timeout":60}]}])' \
-    > "$cfg.tmp" 2>/dev/null && mv "$cfg.tmp" "$cfg" && GRANDMA_CHECKPOINT_INSTALLED=1
+  local script="$ENGINE/lib/grandma-precompact.sh"
+  install_hook "$dir/.claude/settings.local.json" PreCompact "" \
+    "$script" "$(hook_cmd "$script" "$scope" "$project")" 60 0 && GRANDMA_CHECKPOINT_INSTALLED=1
+  return 0
 }
 
 # Common parent folder of a scope's registered projects (for onboarding new projects).
@@ -324,6 +310,24 @@ fi
 
 # Scope named but not a sweater yet: offer to knit it, instead of a cryptic assemble error.
 if ! resolve_scope_dir "$SCOPE" >/dev/null 2>&1; then
+  # Refuse a reserved name BEFORE the terminal branch. A sweater named after a word the
+  # engine uses in its own logic fails `grandma test` forever, so offering to knit one (or
+  # telling a script to go knit one) is inviting a break that only a rename undoes.
+  if scope_name_is_reserved "$SCOPE"; then
+    printf "\n  '%s' is a name grandma reserves (a subcommand, or a folder it owns in your\n" "$SCOPE" >&2
+    printf "  memory home), so a sweater by that name could never be loaded. Pick another.\n\n" >&2
+    exit 2
+  fi
+  # A directory IS there, it just has no `scope:` frontmatter, so nothing treats it as a
+  # sweater: not the picker, not the integrity suite, and now not the launcher either. Say
+  # that plainly. Offering to knit it, or saying "no sweater yet", would read as "your memory
+  # is gone" to someone whose files are sitting right there.
+  if [[ -d "$ROOT/$SCOPE" ]]; then
+    printf "\n  '%s' is a folder in your memory home, but no file in it carries a\n" "$SCOPE" >&2
+    printf "  'scope: %s' frontmatter line, so grandma does not treat it as a sweater.\n" "$SCOPE" >&2
+    printf "  Add that line to %s/facts.md (or any .md directly inside it) and re-run.\n\n" "$SCOPE" >&2
+    exit 1
+  fi
   if [[ -t 0 && "${GRANDMA_DRY_RUN:-0}" != "1" ]]; then
     printf "\n  no sweater '%s' yet. knit it now? [Y/n] " "$SCOPE" >&2
     read -r _mk
@@ -440,8 +444,9 @@ if [[ "${GRANDMA_DRY_RUN:-0}" == "1" ]]; then
     fi
   fi
   [[ ${#PASSTHRU[@]} -gt 0 ]] && echo "passthru:     ${PASSTHRU[*]} (forwarded to claude)" >&2
-  if compgen -G "$ROOT/proposals/${SCOPE}*.md" >/dev/null 2>&1; then
-    pn="$(ls -1 "$ROOT/proposals/${SCOPE}"*.md 2>/dev/null | wc -l | tr -d ' ')"
+  read_proposals "$SCOPE"
+  if [[ ${#PROPOSAL_FILES[@]} -gt 0 ]]; then
+    pn="${#PROPOSAL_FILES[@]}"
     echo "review:       $pn pending proposal(s) — accepting the offer execs: grandma review --apply $SCOPE" >&2
   fi
   echo "capture:      doctrine loaded (prompts/capture.md) · grandma repo writable via --add-dir" >&2
@@ -465,8 +470,9 @@ fi
 # Pending memory proposals for this scope (e.g. from a session whose window was closed, so
 # it distilled in the background). On a real terminal, OFFER to review them before we start —
 # this is where a window-closed session actually gets reviewed. Non-interactive: passive notice.
-if compgen -G "$ROOT/proposals/${SCOPE}*.md" >/dev/null 2>&1; then
-  n="$(ls -1 "$ROOT/proposals/${SCOPE}"*.md 2>/dev/null | wc -l | tr -d ' ')"
+read_proposals "$SCOPE"
+if [[ ${#PROPOSAL_FILES[@]} -gt 0 ]]; then
+  n="${#PROPOSAL_FILES[@]}"
   if [ -t 0 ]; then
     printf '  🧶 grandma noted %s thing(s) from a previous session — review before we start? [Y/n] ' "$n" >&2
     read -r _ans

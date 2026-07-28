@@ -124,7 +124,11 @@ if [[ "$AUTO" == "1" ]]; then
     exit 0
   fi
   stamp="$(basename "$TRANSCRIPT" .jsonl)"
-  out="$ROOT/proposals/${SCOPE}${PROJECT_NAME:+-$PROJECT_NAME}-${stamp}.md"
+  # Name the file from the sweater's OWN spelling, not what the user typed: resolution is
+  # case-insensitive but globbing is not, so `grandma Aarc` used to write a proposal that
+  # `grandma review aarc` and the launch review offer could never find again.
+  cscope="$(canonical_scope "$SCOPE" || printf '%s' "$SCOPE")"
+  out="$ROOT/proposals/${cscope}${PROJECT_NAME:+-$PROJECT_NAME}-${stamp}.md"
   ASYS="$(cat "$DISTILLER")
 
 $(cat "$ENGINE/prompts/capture.md")
@@ -149,7 +153,9 @@ one-line why. If nothing is durable, output exactly 'No durable learnings.'"
   # the recursion guard set, so this headless session cannot fire a project SessionEnd hook
   # and cascade into another distill. Two independent safeguards against the runaway loop.
   { echo "# grandma memory proposal"
-    echo "# scope=$SCOPE${PROJECT_NAME:+ project=$PROJECT_NAME}  transcript=$(basename "$TRANSCRIPT")"
+    # The scope here is the sweater's own spelling: this header, not the filename, is what
+    # decides which sweater a proposal belongs to, so it has to be exact.
+    echo "# scope=$cscope${PROJECT_NAME:+ project=$PROJECT_NAME}  transcript=$(basename "$TRANSCRIPT")"
     echo
     ( cd "$ROOT" && GRANDMA_DISTILLING=1 claude -p "$APROMPT" --append-system-prompt "$ASYS" 2>/dev/null ) || echo "(distiller failed)"
   } > "$out"

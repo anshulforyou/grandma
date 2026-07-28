@@ -318,6 +318,9 @@ write_proposal() {
   fi
 
   mkdir -p "$ROOT/proposals"
+  # Canonical (lowercased) sweater spelling, matching what save.sh writes and what
+  # list_proposals matches on. Resolution is case-insensitive, filenames are not.
+  scope="$(canonical_scope "$scope" || printf '%s' "$scope")"
   local out
   out="$ROOT/proposals/${scope}-knit-$(knit_slug "$project")-$(date +%Y%m%dT%H%M%S).md"
   {

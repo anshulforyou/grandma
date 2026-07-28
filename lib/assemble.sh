@@ -20,7 +20,9 @@
 
 set -euo pipefail
 
+ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT="${GRANDMA_HOME:-$HOME/.grandma}"   # the user's private memory home
+source "$ENGINE/lib/grandma-lib.sh"      # list_scopes / resolve_scope_dir
 
 # ---- args ----
 SCOPE=""
@@ -38,24 +40,16 @@ done
 if [[ -z "$SCOPE" ]]; then
   echo "usage: $(basename "$0") <scope> [--full] [--writing]" >&2
   echo "scopes:" >&2
-  for d in "$ROOT"/*/; do
-    name="$(basename "$d")"
-    [[ "$name" == "global" || "$name" == ".git" ]] && continue
-    echo "  - $name" >&2
-  done
+  while IFS= read -r name; do [[ -n "$name" ]] && echo "  - $name" >&2; done < <(list_scopes)
   exit 2
 fi
 
-# ---- resolve scope dir (case-insensitive), excluding global ----
-SCOPE_DIR=""
-for d in "$ROOT"/*/; do
-  name="$(basename "$d")"
-  [[ "$name" == "global" ]] && continue
-  if [[ "$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')" == "$(printf '%s' "$SCOPE" | tr '[:upper:]' '[:lower:]')" ]]; then
-    SCOPE_DIR="${d%/}"
-    break
-  fi
-done
+# ---- resolve scope dir (case-insensitive) ----
+# Through list_scopes, so ONLY a real sweater can be assembled. Matching any directory here
+# meant `assemble proposals` emitted every sweater's pending proposals as one bundle, which
+# is precisely the cross-scope leak the isolation invariant exists to prevent — and it could
+# not see it, because it only ever tests the names list_scopes returns.
+SCOPE_DIR="$(resolve_scope_dir "$SCOPE" 2>/dev/null || true)"
 
 if [[ -z "$SCOPE_DIR" ]]; then
   echo "error: no scope matching '$SCOPE' under $ROOT" >&2

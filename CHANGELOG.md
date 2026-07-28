@@ -12,6 +12,23 @@
   cache refreshed by a detached, lock-guarded, time-capped poll, so it never waits on the
   network and a failed call never reads as "nothing waiting". Opt out with
   `GRANDMA_NO_KNIT_CHECK=1`; tune with `GRANDMA_KNIT_POLL_HOURS`.
+- Fixed: only a real sweater can be loaded. Any top-level directory in the memory home used to
+  resolve as one, so `grandma proposals` assembled every sweater's pending proposals into a
+  single session. Resolution now goes through `list_scopes`, in both the launcher and
+  `assemble.sh`.
+- Fixed: hook commands are quoted. A project whose registered name contains a space or a
+  parenthesis produced a `settings.local.json` command that died with a shell syntax error, so
+  that project's end-of-session distill and pre-compaction checkpoint never ran, and never said
+  so. Re-launching now also replaces a stale command instead of adding a correct one beside it.
+- Fixed: a sweater sees exactly its own proposals. Filenames were built from the scope as typed
+  while readers matched case-sensitively (so `grandma Aarc` wrote a proposal `grandma review
+  aarc` could not find), and matching was by bare prefix (so reviewing `home` listed `home-ops`
+  proposals and `--clear` would have deleted them). Proposals are now matched on the `scope=`
+  header the distiller writes inside them, which is exact.
+- Fixed: `grandma` refuses to knit a sweater whose name is structurally unusable, meaning a
+  subcommand (it would be shadowed and never launch) or a folder grandma owns in your memory
+  home (loading it would assemble whatever is inside). A folder that exists but carries no
+  `scope:` frontmatter now says so instead of offering to knit over it.
 - `grandma watch`: tool-usage lens. Metrics now count calls per tool name, not just the
   total, so `grandma watch status` shows your top tools live and the final report can
   reason about the mix. Mechanical (python over the transcript), no model call.
