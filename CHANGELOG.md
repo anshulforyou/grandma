@@ -41,6 +41,14 @@
 - A knit invite now grants read access rather than write. A recipient only ever clones and
   fetches, and `knit pull` no longer treats your own share repo as an inbox, so nothing
   sitting in it can arrive in your review queue attributed to someone else.
+- A knit share repo is named for the sweater as well as the project, so two sweaters that each
+  have a project called `api` no longer share into the same repo. Previously the second
+  share overwrote the first and its recipients received the wrong sweater's memory.
+- The share footer now says how many terms were actually matched, and points at
+  `denylist.txt` when the answer is only your own name. It read as "this was scrubbed"
+  when the default denylist is empty.
+- Absolute home paths are rewritten to `~` before the line filter rather than after, so the
+  rewrite still happens when your OS username matches the name in your identity file.
 - Desktop notifications now say what to run. A macOS notification sent through `osascript` is
   attributed to Script Editor and has no click action at all, so clicking one opened an empty
   Script Editor window. The command is now in the notification body, and when

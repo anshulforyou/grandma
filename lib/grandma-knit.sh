@@ -69,7 +69,7 @@ gh_login() { gh api user --jq .login 2>/dev/null; }
 ensure_knit_ignored() {
   local gi="$ROOT/.gitignore"
   [[ -d "$ROOT" ]] || return 0
-  grep -qx '.knit/' "$gi" 2>/dev/null && return 0
+  grep -qxF '.knit/' "$gi" 2>/dev/null && return 0   # -F: '.' is a wildcard in a BRE
   # A redirect that fails is reported by the SHELL, not the command, so `printf ... 2>/dev/null`
   # does not silence it. That matters for a job running every 60 seconds: on a memory home the
   # process cannot write (a launchd agent under ~/Documents, say) this wrote "Operation not
@@ -186,7 +186,7 @@ knit_require_gh() {
 # name and their sweater-jargon denylist (the same list `grandma test` guards the engine with).
 personal_terms() {
   local out="$1" nm
-  printf '# personal terms (fixed strings, one per line)\n' > "$out"
+  printf '# identifying terms (fixed strings, one per line)\n' > "$out"
   nm="$(grep -m1 -iE '^-?[[:space:]]*name:' "$ROOT/global/identity.md" 2>/dev/null \
         | sed 's/^[^:]*:[[:space:]]*//' | sed 's/[[:space:]]*$//')"
   [[ -n "$nm" ]] && printf '%s\n' "$nm" >> "$out"
@@ -218,23 +218,35 @@ strip_personal() {
       print line
     }
     END { printf "%d", dropped+0 > cntfile }
-  ' "$terms" "$src" \
-    | sed -e "s|${HOME}|~|g" -e 's|/[Uu]sers/[A-Za-z0-9._-]*|~|g' -e 's|/home/[A-Za-z0-9._-]*|~|g'
+  ' "$terms" "$src"
+}
+
+# rewrite_paths — absolute home paths to ~. Runs BEFORE the line filter, not after: when the
+# OS username matches the Name in identity.md, every line holding a home path contains the
+# user's name, so the filter deletes it and the rewrite never sees it. Rewriting first means
+# the path is already ~ by the time the filter looks, and the line survives on its merits.
+rewrite_paths() {
+  sed -e "s|${HOME}|~|g" -e 's|/[Uu]sers/[A-Za-z0-9._-]*|~|g' -e 's|/home/[A-Za-z0-9._-]*|~|g'
 }
 
 # build_payload <src> <project> <sender> <outfile> <countfile> — the shareable artifact:
 # a small header (so the receiving grandma knows what this is) plus the stripped memory.
+# shellcheck disable=SC2034  # termsfile is an output, read by cmd_share
 build_payload() {
   local src="$1" project="$2" sender="$3" out="$4" cnt="$5"
-  local terms; terms="$(mktemp "${TMPDIR:-/tmp}/grandma-knit-terms-XXXXXX")" || return 1
+  local rw
+  terms="$(mktemp "${TMPDIR:-/tmp}/grandma-knit-terms-XXXXXX")" || return 1
+  rw="$(mktemp "${TMPDIR:-/tmp}/grandma-knit-rw-XXXXXX")" || { rm -f "$terms"; return 1; }
   personal_terms "$terms"
   {
     printf -- '---\nknit: 1\nproject: %s\nfrom: %s\nshared: %s\n---\n\n' \
       "$project" "$sender" "$(date +%Y-%m-%d)"
     printf '# %s — shared project memory\n\n' "$project"
-    strip_personal "$src" "$terms" "$cnt"
+    rewrite_paths < "$src" > "$rw" 2>/dev/null || cp "$src" "$rw"
+    strip_personal "$rw" "$terms" "$cnt"
   } > "$out"
-  rm -f "$terms"
+  rm -f "$rw"
+  termsfile="$terms"      # caller reports how many terms were actually in play, then removes it
 }
 
 # payload_field <file> <key> — read one header field out of a received share.
@@ -426,15 +438,30 @@ cmd_share() {
   build_payload "$src" "$RP_NAME" "$sender" "$tmp" "$cntf" || die "could not build the share"
   cnt="$(cat "$cntf" 2>/dev/null || echo 0)"; rm -f "$cntf"
 
-  local slug repo; slug="$(knit_slug "$RP_NAME")"; repo="$REPO_PREFIX$slug"
+  # The repo name carries the SWEATER as well as the project. Without it, two sweaters that
+  # each register a project called `api` share into one repo: the second push overwrites the
+  # first, and everyone invited for the first then receives the second's memory. That is the
+  # one thing the isolation promise says cannot happen, so knit must not route around it.
+  local slug repo
+  slug="$(knit_slug "$sweater")-$(knit_slug "$RP_NAME")"
+  repo="$REPO_PREFIX$slug"
 
   printf '\n  ── knit share: %s (from %s) ──\n' "$RP_NAME" "$sweater" >&2
   cat "$tmp" >&2
-  printf '  ── end of share · %s personal line(s) stripped ──\n\n' "$cnt" >&2
+  local nterms; nterms="$(grep -cvE '^[[:space:]]*#|^[[:space:]]*$' "$termsfile" 2>/dev/null || echo 0)"
+  printf '  ── end of share · %s line(s) removed, matching %s term(s) ──\n' "$cnt" "$nterms" >&2
+  if [[ "${nterms:-0}" -le 1 ]]; then
+    printf '  read it: only your own name is being matched. Add employers, clients and\n' >&2
+    printf '  product names to %s/denylist.txt to catch more.\n\n' "$(basename "$ROOT")" >&2
+  else
+    printf '\n' >&2
+  fi
+  rm -f "$termsfile" 2>/dev/null || true
 
   if [[ -n "$file" ]]; then
     if dry; then say "would write the share to: $file"; rm -f "$tmp"; exit 0; fi
-    cp "$tmp" "$file" && say "wrote $file — hand it over however you like; they run: grandma knit pull --file <path>"
+    if ! cp "$tmp" "$file"; then rm -f "$tmp"; die "could not write $file"; fi
+    say "wrote $file — hand it over however you like; they run: grandma knit pull --file <path>"
     note_ledger out "file" "$RP_NAME" "$file" "-"
     rm -f "$tmp"; exit 0
   fi
@@ -483,7 +510,7 @@ cmd_share() {
 # grandma knit: $RP_NAME
 
 Shared project memory, one file per person under \`shares/\`. This is not code and not a
-backup: it is what each of us learned working $RP_NAME, personal scope stripped out.
+backup: it is what each of us learned working $RP_NAME, with identifying detail removed.
 
 Pull it into your own memory with grandma:
 
@@ -561,7 +588,10 @@ write_proposal() {
     printf 'disagree, show both and ask — do not silently overwrite a local note. Attribute what\n'
     printf 'you keep to %s so its origin stays visible.\n\n' "$peer"
     printf -- '----- BEGIN SHARED MEMORY (%s) -----\n' "$peer"
-    cat "$payload"
+    # Neutralise any line that would close the fence early. Without this, a share containing
+    # the end delimiter puts the rest of its own text OUTSIDE the quoted block, where the
+    # reviewing session reads it as instruction rather than as someone else's memory.
+    sed 's/^----- END SHARED MEMORY -----$/- - - - - END SHARED MEMORY (quoted) - - - - -/' "$payload"
     printf -- '\n----- END SHARED MEMORY -----\n'
   } > "$out"
   printf '%s' "$out"
@@ -666,7 +696,7 @@ cmd_pull() {
   # /user/repos returns repos you OWN as well as ones shared with you. Cloning your own turns
   # your outbox into an inbox: anything sitting in it is ingested as a share from whoever the
   # filename names. Your own shares are not news to you either way.
-  done < <(gh api "/user/repos?per_page=100" \
+  done < <(gh api --paginate "/user/repos?per_page=100" \
              --jq ".[] | select(.name | startswith(\"$REPO_PREFIX\")) | select(.owner.login != \"$me\") | .full_name" 2>/dev/null || true)
 
   # 3. refresh everything we already have, and ingest what is new
@@ -806,6 +836,11 @@ run_bounded() {
   if [[ -s "$finished" ]]; then
     rc="$(cat "$finished")"
   else
+    # Kill the CHILDREN first. The command runs inside a backgrounded subshell, so signalling
+    # only $pid reaps the subshell and leaves the actual network call running long past the
+    # bound it was given. A negative pid does not help here either: the subshell inherits its
+    # parent's process group rather than leading one of its own.
+    pkill -TERM -P "$pid" 2>/dev/null || true
     kill -TERM "$pid" 2>/dev/null; rc=124
   fi
   wait "$pid" 2>/dev/null || true
@@ -821,7 +856,18 @@ cmd_poll() {
   mkdir -p "$KNIT" 2>/dev/null
   # A per-minute agent must never stack. mkdir is the atomic test-and-set; a tick that finds
   # the lock held exits immediately rather than queueing behind the one already running.
-  mkdir "$lock" 2>/dev/null || exit 0
+  # But the lock is released by an EXIT trap, and a SIGKILL, an OOM or a reboot mid-poll skips
+  # traps entirely. Without recovery that leaves the directory behind forever and knit never
+  # checks again. Steal a lock older than an hour: no tick lives anywhere near that long, since
+  # the network call is capped in seconds. grandma-watch's tick already does exactly this.
+  if ! mkdir "$lock" 2>/dev/null; then
+    local lock_age now_s lock_s
+    now_s="$(date +%s 2>/dev/null)"; lock_s="$(file_mtime "$lock")"
+    lock_age=$(( ${now_s:-0} - ${lock_s:-0} ))
+    if [[ "$lock_age" -lt "${GRANDMA_KNIT_LOCK_STALE:-3600}" ]]; then exit 0; fi
+    rmdir "$lock" 2>/dev/null || true
+    mkdir "$lock" 2>/dev/null || exit 0
+  fi
   # shellcheck disable=SC2064  # expand $lock now: the trap must survive whatever follows
   trap "rmdir '$lock' 2>/dev/null || true" EXIT
 

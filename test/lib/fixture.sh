@@ -97,6 +97,7 @@ if [ "\$1" = "api" ]; then
       --jq) jqexpr="\$2"; shift 2 ;;
       -H) case "\$2" in "If-None-Match: "*) inm="\${2#If-None-Match: }" ;; esac; shift 2 ;;
       -i) incl=1; shift ;;
+      --paginate) shift ;;
       -f) shift 2 ;;
       *) [ -z "\$target" ] && target="\$1"; shift ;;
     esac
