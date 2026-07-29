@@ -942,9 +942,12 @@ cmd_poll() {
 # is a 304 that costs no rate limit and does no work. It is never installed for you.
 
 KNIT_AGENT_LABEL="com.grandma.knit"
-# Overridable so the tests can simulate a failing agent without writing into the log a
-# real agent on this machine is using.
-KNIT_AGENT_LOG="${GRANDMA_KNIT_AGENT_LOG:-/tmp/grandma-knit-agent.log}"
+# Under $KNIT, not /tmp. A fixed, predictable name in a world-writable directory can be
+# pre-created or symlinked by another local user before the agent's first run, and launchd
+# follows it and writes as you. Everything else knit writes already lives here, and
+# notify_user logs under $ROOT/.distill, so this also stops being the one exception.
+# Overridable so the tests can simulate a failing agent without touching a real agent's log.
+KNIT_AGENT_LOG="${GRANDMA_KNIT_AGENT_LOG:-$KNIT/agent.log}"
 # Overridable for the same reason as the log: a test that installs and removes a plist at the
 # real ~/Library/LaunchAgents path uninstalls the agent of whoever is running the suite.
 knit_agent_plist() {

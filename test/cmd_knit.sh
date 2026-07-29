@@ -681,6 +681,15 @@ assert_contains "is live" "and is only called live once a tick has actually happ
 assert_contains "60s" "naming the interval"
 rm -f "$AGENTDIR/com.grandma.knit.plist"   # the dry-run section below asserts it writes none
 
+section "agent — its log lives under .knit/, not in a world-writable directory"
+# Raised in review. A fixed, predictable name under /tmp can be pre-created or symlinked by
+# another local user before the agent's first run, and launchd follows it and writes as you.
+capture env GRANDMA_HOME="$H8" GRANDMA_DRY_RUN=1 GRANDMA_KNIT_AGENT_DIR="$AGENTDIR" "$GBIN" knit install-agent
+assert_rc 0 "the dry run still works"
+capture grep -n 'KNIT_AGENT_LOG=' "$ENGINE/lib/grandma-knit.sh"
+assert_contains 'KNIT/agent.log' "the default log path is under \$KNIT"
+assert_not_contains "/tmp/grandma" "and not a predictable name in /tmp"
+
 section "agent — install and uninstall are opt-in and reversible"
 capture env GRANDMA_HOME="$H8" GRANDMA_DRY_RUN=1 GRANDMA_KNIT_AGENT_DIR="$AGENTDIR" "$GBIN" knit install-agent
 assert_rc 0 "a dry-run install runs (on any platform, not just macOS)"
