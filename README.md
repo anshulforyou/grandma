@@ -200,8 +200,10 @@ grandma ingest [sweater]         catalog an existing folder of projects
 grandma watch ...              analysis campaigns over your sessions
 grandma test [sweater]           verify the integrity invariants
 grandma completions bash|zsh|fish print the shell tab-completion script
-grandma knit share <sweater> <project> --to <github-user>   share a project's memory
+grandma knit share <sweater> <project> --to <who>   share a project's memory
 grandma knit pull                pull a teammate's shared memory in for review
+grandma knit contacts            the people you share with, by name
+grandma knit install-agent       check for shares every 60s (opt-in)
 ```
 
 ## Known quirks (v0.1)
@@ -265,8 +267,17 @@ Grandma is being built in three phases, and you are looking at the first two.
    to add the handle once. The handle is the part an invite actually needs, because GitHub's
    collaborator API takes a username and has no way to accept an address.
 
+   You find out three ways, and you choose how much to opt into. A line when you next open
+   grandma, a desktop notification when a share turns up (once per share, not once per
+   check), and if you want it immediate, `grandma knit install-agent` checks every 60
+   seconds in the background. That last one is affordable because the check is a conditional
+   request and GitHub does not charge for a "nothing changed" answer, so the quiet case costs
+   nothing. Installing verifies that the job can actually run and tells you if it cannot,
+   rather than claiming success and going silent.
+
    No grandma server and no grandma account, still. The transport is your own GitHub
-   through the `gh` CLI you already log into. The launch check never waits on the network:
+   through the `gh` CLI you already log into. If you have not got it, knit explains why it
+   needs it and offers to install it. The launch check never waits on the network:
    it prints from a cache that a detached, lock-guarded, time-capped poll refreshes, and a
    failed call leaves the old cache alone rather than claiming nothing is waiting. Silence
    it with `GRANDMA_NO_KNIT_CHECK=1`.

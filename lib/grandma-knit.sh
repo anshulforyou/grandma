@@ -301,17 +301,6 @@ gh_user_for_email() {
   printf '%s' "${out#*$'\t'}"
 }
 
-# contact_resolve <token> — turn what the user typed into a GitHub handle. A known name (or
-# a known handle) resolves from the book; anything else is passed through untouched, so a
-# handle you have never saved still works exactly as before.
-contact_resolve() {
-  local hit; hit="$(contact_lookup "$1")"
-  if [[ -n "$hit" ]]; then
-    local h; h="$(printf '%s' "$hit" | cut -f2)"
-    if [[ -n "$h" ]]; then printf '%s' "$h"; return 0; fi
-  fi
-  printf '%s' "$1"
-}
 
 # contact_offer_name <handle> — after a successful invite to a handle grandma has not seen
 # before, ask what to call them so next time the user can type that instead. Interactive

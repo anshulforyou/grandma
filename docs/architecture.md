@@ -84,9 +84,30 @@ notifications API, which is repo-scoped), but a repository invitation sits in
 `GET /user/repository_invitations`, which is exactly a pollable inbox. That single fact is
 why the transport is a repo and not the secret gist the design started with.
 
-The launch banner reads a cache file, never the network. When the cache is older than
-`GRANDMA_KNIT_POLL_HOURS` (default 8), the launcher detaches a poll for next time, the same
-shape as the watch tick. The poll takes a lock so a stalled one cannot spawn siblings, caps
+How you find out about a share depends on how much you want to opt into.
+
+At launch, grandma reads a cache file rather than the network, so a launch never waits on
+GitHub. When that cache is stale (`GRANDMA_KNIT_POLL_HOURS`, default 8) it detaches a check
+for next time, the same shape as the watch tick. The one exception is the very first check on
+a machine: that runs in the foreground under a tight cap, because backgrounding it writes the
+cache after the banner has already been read, which makes the launch that matters most to a
+new recipient the one that shows nothing.
+
+A check that finds a share it has not seen before also raises a desktop notification, so a
+share can reach you without opening grandma at all. It fires once per share, not once per
+check, because the check runs often and re-announcing the same pending share would be noise.
+
+`grandma knit install-agent` goes further: an opt-in launchd job that checks every 60 seconds,
+which makes arrival effectively instant. That is affordable only because the invitations
+endpoint supports conditional requests and GitHub does not bill a `304 Not Modified`, so the
+steady state is a free round trip that does no work. There is no push alternative to build
+instead: GitHub offers no socket a client can hold open, and webhooks need a public URL, which
+means a server. Installing verifies itself by removing the tick's own stamp and waiting for it
+to reappear, because a launchd job that loads but cannot read the engine (macOS withholds
+`~/Documents` from background agents) would otherwise be reported as installed while failing
+every minute.
+
+Whichever path finds it, the check takes a lock so a stalled one cannot spawn siblings, caps
 itself with a wall clock, and only overwrites the cache when the call actually succeeded. A
 timeout or a logged-out `gh` leaves the previous state alone: a bad network must never read
 as "nothing is waiting for you".
@@ -95,7 +116,16 @@ A pulled share does not merge. It becomes a proposal in `proposals/`, named
 `<scope>-knit-<project>-<stamp>.md` so the existing review flow resolves its sweater, and
 the reviewing session is told to lay it against local memory and ask where the two disagree.
 A content hash goes in a git-ignored ledger, so pulling twice is a no-op and a teammate's
-updated share comes through as a new proposal.
+updated share comes through as a new proposal. The pull then points at that proposal by name
+rather than at `grandma review`, because someone else's memory is the thing you want to read
+on its own instead of buried among your own pending distills.
+
+Who you share with is remembered locally too. `grandma knit contacts` is a name-to-handle book
+under the same git-ignored `.knit/`, so `--to Priyansh` works after the first time. It is
+convenience state, never memory: never distilled, never shared. The handle is the part an
+invite needs, because GitHub's collaborator API takes a username and cannot accept an address;
+an email can be stored beside it, and an address grandma has not seen is looked up on GitHub,
+which only matches people who made theirs public.
 
 ## Compaction self-healing
 
