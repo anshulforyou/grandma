@@ -440,10 +440,15 @@ done
 
 section "agent — install and uninstall are opt-in and reversible"
 capture env GRANDMA_HOME="$H8" GRANDMA_DRY_RUN=1 "$GBIN" knit install-agent
-assert_rc 0 "a dry-run install runs"
-assert_contains "would install" "and only says what it would do"
+assert_rc 0 "a dry-run install runs (on any platform, not just macOS)"
 assert_contains "60s" "naming the interval"
 assert_no_file "$HOME/Library/LaunchAgents/com.grandma.knit.plist" "a dry run installs nothing"
+if command -v launchctl >/dev/null 2>&1; then
+  assert_contains "would install" "macOS: it plans the launchd agent"
+else
+  assert_contains "launchd is macOS-only" "Linux: it says why there is nothing to install"
+  assert_contains "would write: nothing" "and is explicit that it would write nothing"
+fi
 capture env GRANDMA_HOME="$H8" GRANDMA_DRY_RUN=1 "$GBIN" knit uninstall-agent
 assert_rc 0 "a dry-run uninstall runs"
 assert_contains "would unload" "and only says what it would do"

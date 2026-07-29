@@ -875,17 +875,25 @@ knit_agent_interval() { printf '%s' "${GRANDMA_KNIT_AGENT_INTERVAL:-60}"; }
 
 cmd_install_agent() {
   local interval; interval="$(knit_agent_interval)"
+  local plist; plist="$(knit_agent_plist)"
+  # The dry run answers first, and answers on every platform. Checking for launchctl before it
+  # meant `GRANDMA_DRY_RUN=1 ... install-agent` exited 1 on Linux with cron advice instead of a
+  # plan, which is not what a dry run is for.
+  if dry; then
+    if command -v launchctl >/dev/null 2>&1; then
+      say "would install $KNIT_AGENT_LABEL: a check every ${interval}s"
+      say "would write: $plist"
+    else
+      say "would print the cron line to run a check every ${interval}s (launchd is macOS-only)"
+      say "would write: nothing"
+    fi
+    return 0
+  fi
   if ! command -v launchctl >/dev/null 2>&1; then
     say "launchd is macOS-only. On Linux, add a cron entry (this runs it every minute):"
     say "  * * * * * $ENGINE/lib/grandma-knit.sh poll"
     say "or a systemd user timer with OnUnitActiveSec=${interval}s."
     return 1
-  fi
-  local plist; plist="$(knit_agent_plist)"
-  if dry; then
-    say "would install $KNIT_AGENT_LABEL: a check every ${interval}s"
-    say "would write: $plist"
-    return 0
   fi
   mkdir -p "$(dirname "$plist")"
   cat > "$plist" <<EOF
