@@ -916,15 +916,67 @@ cmd_install_agent() {
   <key>StandardErrorPath</key><string>/tmp/grandma-knit-agent.log</string>
 </dict></plist>
 EOF
+  # Verify by EXISTENCE, not by timestamp. Every exit path of a tick writes .knit-checked, so
+  # removing it first and waiting for it to come back is unambiguous. Comparing mtimes instead
+  # looks reasonable and is not: the stamp has one-second granularity, so a tick landing in the
+  # same second as the baseline is invisible and a working agent gets called broken.
+  # Losing the old stamp is harmless, it only means the next launch checks straight away.
+  local stampf="$ROOT/.knit-checked" i=0
+  rm -f "$stampf"
+
   launchctl unload "$plist" 2>/dev/null || true
-  if launchctl load "$plist" 2>/dev/null; then
-    say "background check installed: every ${interval}s (log: /tmp/grandma-knit-agent.log)"
-    say "a share now reaches you within a minute, without opening grandma."
-    say "remove it any time with: grandma knit uninstall-agent"
-  else
+  if ! launchctl load "$plist" 2>/dev/null; then
     say "could not load the agent. The plist is at $plist"
+    rm -f "$plist"
     return 1
   fi
+
+  # Loading is not running. On macOS a launchd job cannot read ~/Documents without Full Disk
+  # Access for /bin/bash, so an agent installed from a checkout living there fails on every
+  # tick with "Operation not permitted" while launchctl still reports it as loaded. Saying
+  # "installed" at that point is a lie the user only discovers by never being notified.
+  #
+  # So verify FUNCTIONALLY: RunAtLoad fires a tick immediately, and every exit path of a tick
+  # stamps .knit-checked. If that stamp moves, the agent really can read the engine and write
+  # the memory home. If it does not, this is not a working install and should not claim to be.
+  say "installed, checking that it can actually run..."
+  while [[ "$i" -lt 40 ]]; do
+    [[ -f "$stampf" ]] && break
+    sleep 0.25; i=$((i + 1))
+  done
+
+  if [[ -f "$stampf" ]]; then
+    say "background check is live: every ${interval}s (log: /tmp/grandma-knit-agent.log)"
+    say "a share now reaches you within a minute, without opening grandma."
+    say "remove it any time with: grandma knit uninstall-agent"
+    return 0
+  fi
+
+  # It loaded but did not work. Say why, using what launchd and the log actually reported,
+  # and take the broken job back out rather than leaving it failing every minute forever.
+  local st reason
+  st="$(launchctl list 2>/dev/null | awk -v l="$KNIT_AGENT_LABEL" '$3 == l {print $2}')"
+  reason="$(tail -n 1 /tmp/grandma-knit-agent.log 2>/dev/null)"
+  launchctl unload "$plist" 2>/dev/null || true
+  rm -f "$plist"
+  say ""
+  say "the agent loaded but its first check did not run${st:+ (launchd exit $st)}, so it has been removed."
+  [[ -n "$reason" ]] && say "launchd said: $reason"
+  case "$reason" in
+    *"Operation not permitted"*|*"Permission denied"*)
+      say ""
+      say "That is macOS file protection, not a bug in the job: a background agent cannot read"
+      say "$ENGINE without permission. Two ways round it:"
+      say "  1. move the engine somewhere unprotected (anywhere outside ~/Documents, ~/Desktop,"
+      say "     ~/Downloads), then run this again. This is the simpler one."
+      say "  2. grant Full Disk Access to /bin/bash in System Settings > Privacy & Security,"
+      say "     then run this again. Broader than it sounds, since it applies to every script."
+      ;;
+    *) say "See /tmp/grandma-knit-agent.log for what it tried." ;;
+  esac
+  say ""
+  say "Nothing else changed: knit still checks at launch, and 'grandma knit pull' always works."
+  return 1
 }
 
 cmd_uninstall_agent() {

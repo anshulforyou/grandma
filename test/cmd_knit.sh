@@ -438,6 +438,59 @@ for f in .knit-pending .knit-checked .knit/invitations.etag; do
                      || fail "$f grew to ${sz} bytes"
 done
 
+section "agent — a job that loads but cannot run is reported, not called installed"
+# The real failure this guards: on macOS a launchd job cannot read ~/Documents without Full
+# Disk Access, so it fails every tick with "Operation not permitted" while launchctl still
+# reports it loaded. Claiming success there is a lie the user only finds out by never being
+# notified. launchctl is stubbed so both outcomes run on any platform.
+H9="$TMP/home9"; make_fixture_home "$H9"
+LC="$TMP/lcbin"; mkdir -p "$LC"
+cat > "$LC/launchctl" <<'LCS'
+#!/usr/bin/env bash
+case "$1" in
+  load|unload) exit 0 ;;
+  list) printf '%s\t%s\t%s\n' "-" "${FAKE_AGENT_STATUS:-0}" "com.grandma.knit" ;;
+esac
+exit 0
+LCS
+chmod +x "$LC/launchctl"
+printf '/bin/bash: /x/grandma-knit.sh: Operation not permitted\n' > /tmp/grandma-knit-agent.log
+
+# the job never ticks, so .knit-checked never moves
+capture env GRANDMA_HOME="$H9" PATH="$LC:$PATH" FAKE_AGENT_STATUS=126 \
+  GRANDMA_KNIT_AGENT_INTERVAL=60 "$GBIN" knit install-agent
+assert_rc 1 "a job that cannot run exits non-zero"
+assert_contains "did not run" "it says the check never ran"
+assert_contains "launchd exit 126" "and reports what launchd recorded"
+assert_contains "Operation not permitted" "and quotes what launchd actually said"
+assert_contains "macOS file protection" "and explains the cause in plain terms"
+assert_contains "move the engine" "offering the simpler remedy first"
+assert_contains "Full Disk Access" "and the other one"
+assert_contains "has been removed" "the broken job is taken back out, not left failing every minute"
+assert_no_file "$HOME/Library/LaunchAgents/com.grandma.knit.plist" "and its plist is gone"
+assert_contains "knit still checks at launch" "and it says what still works"
+
+section "agent — a job that really ticks is reported as live"
+# Same stub, but something moves the stamp the way a working tick would.
+LC2="$TMP/lcbin2"; mkdir -p "$LC2"
+cat > "$LC2/launchctl" <<LCS2
+#!/usr/bin/env bash
+case "\$1" in
+  load) date +%s > "$H9/.knit-checked"; exit 0 ;;   # a working agent ticks on load
+  unload) exit 0 ;;
+  list) printf '%s\t%s\t%s\n' "1234" "0" "com.grandma.knit" ;;
+esac
+exit 0
+LCS2
+chmod +x "$LC2/launchctl"
+printf '0\n' > "$H9/.knit-checked"
+capture env GRANDMA_HOME="$H9" PATH="$LC2:$PATH" GRANDMA_KNIT_AGENT_INTERVAL=60 \
+  "$GBIN" knit install-agent
+assert_rc 0 "a working job exits 0"
+assert_contains "is live" "and is only called live once a tick has actually happened"
+assert_contains "60s" "naming the interval"
+rm -f "$HOME/Library/LaunchAgents/com.grandma.knit.plist"
+
 section "agent — install and uninstall are opt-in and reversible"
 capture env GRANDMA_HOME="$H8" GRANDMA_DRY_RUN=1 "$GBIN" knit install-agent
 assert_rc 0 "a dry-run install runs (on any platform, not just macOS)"
