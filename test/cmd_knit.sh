@@ -256,6 +256,19 @@ n="$(ls -1 "$H4/proposals/"*knit*.md 2>/dev/null | wc -l | tr -d ' ')"
 [ "$n" -ge 1 ] && ok "the teammate's memory is reviewable" || fail "no knit proposal landed"
 fake_gh_invitation "$GHROOT" 4242 testuser "testuser/grandma-knit-yard"   # restore shared state
 
+section "knit — an unwritable .gitignore is silent, not noisy on every tick"
+# A failing redirect is reported by the shell, not the command, so `2>/dev/null` on the
+# printf does not silence it. On a home the process cannot write, that put "Operation not
+# permitted" in the log once every 60 seconds for a case that is already handled.
+HRO="$TMP/readonly"; make_fixture_home "$HRO"
+grep -v '^\.knit' "$HRO/.gitignore" > "$HRO/.gitignore.tmp" && mv "$HRO/.gitignore.tmp" "$HRO/.gitignore"
+chmod a-w "$HRO/.gitignore"
+capture env GRANDMA_HOME="$HRO" "$GBIN" knit contacts
+assert_rc 0 "knit still runs with an unwritable .gitignore"
+assert_not_contains "Operation not permitted" "no permission error is printed"
+assert_not_contains "Permission denied" "nor the other wording"
+chmod u+w "$HRO/.gitignore"
+
 section "knit — the memory home keeps share clones out of its history"
 capture cat "$H/.gitignore"
 assert_contains ".knit/" "the working copies are gitignored"

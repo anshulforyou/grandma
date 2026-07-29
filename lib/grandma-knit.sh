@@ -70,8 +70,15 @@ ensure_knit_ignored() {
   local gi="$ROOT/.gitignore"
   [[ -d "$ROOT" ]] || return 0
   grep -qx '.knit/' "$gi" 2>/dev/null && return 0
-  printf '.knit/\n.knit-pending\n.knit-checked\n' >> "$gi" 2>/dev/null \
+  # A redirect that fails is reported by the SHELL, not the command, so `printf ... 2>/dev/null`
+  # does not silence it. That matters for a job running every 60 seconds: on a memory home the
+  # process cannot write (a launchd agent under ~/Documents, say) this wrote "Operation not
+  # permitted" into the log on every single tick, for a case that is already handled. Test the
+  # file is writable first, and put the redirect where its own failure can be swallowed.
+  [[ -w "$gi" || ( ! -e "$gi" && -w "$ROOT" ) ]] || return 0
+  { printf '.knit/\n.knit-pending\n.knit-checked\n' >> "$gi"; } 2>/dev/null \
     && say "+ .knit/ added to $(basename "$ROOT")/.gitignore (knit's scratch stays local)"
+  return 0
 }
 
 # git_here <dir> <args...> — a git command in <dir> with an identity that always resolves, so
