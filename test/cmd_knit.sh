@@ -609,7 +609,8 @@ assert_no_file "$H8/.knit/poll.lock" "and the lock was released, so the next tic
 SLOW3="$TMP/slow3"; mkdir -p "$SLOW3"
 printf '#!/usr/bin/env bash\nexec sleep 3117\n' > "$SLOW3/gh"; chmod +x "$SLOW3/gh"
 env GRANDMA_HOME="$H8" GRANDMA_KNIT_POLL_TIMEOUT=2 PATH="$SLOW3:$PATH" "$ENGINE/lib/grandma-knit.sh" poll
-sleep 1
+# wait for the teardown rather than guessing at it (see rule 4)
+wait_until 5 bash -c '! pgrep -f "sleep 3117" >/dev/null 2>&1' || true
 n=$(pgrep -f 'sleep 3117' 2>/dev/null | wc -l | tr -d ' ')
 [ "${n:-0}" = "0" ] && ok "the capped request itself is killed, not just its wrapper" \
                     || fail "the network call outlived its bound ($n still running)"
