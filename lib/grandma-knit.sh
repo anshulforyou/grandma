@@ -893,7 +893,11 @@ KNIT_AGENT_LABEL="com.grandma.knit"
 # Overridable so the tests can simulate a failing agent without writing into the log a
 # real agent on this machine is using.
 KNIT_AGENT_LOG="${GRANDMA_KNIT_AGENT_LOG:-/tmp/grandma-knit-agent.log}"
-knit_agent_plist() { printf '%s/Library/LaunchAgents/%s.plist' "$HOME" "$KNIT_AGENT_LABEL"; }
+# Overridable for the same reason as the log: a test that installs and removes a plist at the
+# real ~/Library/LaunchAgents path uninstalls the agent of whoever is running the suite.
+knit_agent_plist() {
+  printf '%s/%s.plist' "${GRANDMA_KNIT_AGENT_DIR:-$HOME/Library/LaunchAgents}" "$KNIT_AGENT_LABEL"
+}
 knit_agent_interval() { printf '%s' "${GRANDMA_KNIT_AGENT_INTERVAL:-60}"; }
 
 cmd_install_agent() {

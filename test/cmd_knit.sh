@@ -497,11 +497,13 @@ exit 0
 LCS
 chmod +x "$LC/launchctl"
 AGENTLOG="$TMP/agent.log"   # never the real one: a dev machine may have an agent using it
+AGENTDIR="$TMP/LaunchAgents"; mkdir -p "$AGENTDIR"   # nor the real ~/Library/LaunchAgents
 printf '/bin/bash: /x/grandma-knit.sh: Operation not permitted\n' > "$AGENTLOG"
 
 # the job never ticks, so .knit-checked never moves
 capture env GRANDMA_HOME="$H9" PATH="$LC:$PATH" FAKE_AGENT_STATUS=126 \
-  GRANDMA_KNIT_AGENT_LOG="$AGENTLOG" GRANDMA_KNIT_AGENT_INTERVAL=60 "$GBIN" knit install-agent
+  GRANDMA_KNIT_AGENT_LOG="$AGENTLOG" GRANDMA_KNIT_AGENT_DIR="$AGENTDIR" \
+  GRANDMA_KNIT_AGENT_INTERVAL=60 "$GBIN" knit install-agent
 assert_rc 1 "a job that cannot run exits non-zero"
 assert_contains "did not run" "it says the check never ran"
 assert_contains "launchd exit 126" "and reports what launchd recorded"
@@ -510,7 +512,7 @@ assert_contains "macOS file protection" "and explains the cause in plain terms"
 assert_contains "move the engine" "offering the simpler remedy first"
 assert_contains "Full Disk Access" "and the other one"
 assert_contains "has been removed" "the broken job is taken back out, not left failing every minute"
-assert_no_file "$HOME/Library/LaunchAgents/com.grandma.knit.plist" "and its plist is gone"
+assert_no_file "$AGENTDIR/com.grandma.knit.plist" "and its plist is gone"
 assert_contains "knit still checks at launch" "and it says what still works"
 
 section "agent — a job that really ticks is reported as live"
@@ -528,24 +530,24 @@ LCS2
 chmod +x "$LC2/launchctl"
 printf '0\n' > "$H9/.knit-checked"
 capture env GRANDMA_HOME="$H9" PATH="$LC2:$PATH" GRANDMA_KNIT_AGENT_LOG="$AGENTLOG" \
-  GRANDMA_KNIT_AGENT_INTERVAL=60 "$GBIN" knit install-agent
+  GRANDMA_KNIT_AGENT_DIR="$AGENTDIR" GRANDMA_KNIT_AGENT_INTERVAL=60 "$GBIN" knit install-agent
 assert_rc 0 "a working job exits 0"
 assert_contains "is live" "and is only called live once a tick has actually happened"
 assert_contains "60s" "naming the interval"
-rm -f "$HOME/Library/LaunchAgents/com.grandma.knit.plist"
+rm -f "$AGENTDIR/com.grandma.knit.plist"   # the dry-run section below asserts it writes none
 
 section "agent — install and uninstall are opt-in and reversible"
-capture env GRANDMA_HOME="$H8" GRANDMA_DRY_RUN=1 "$GBIN" knit install-agent
+capture env GRANDMA_HOME="$H8" GRANDMA_DRY_RUN=1 GRANDMA_KNIT_AGENT_DIR="$AGENTDIR" "$GBIN" knit install-agent
 assert_rc 0 "a dry-run install runs (on any platform, not just macOS)"
 assert_contains "60s" "naming the interval"
-assert_no_file "$HOME/Library/LaunchAgents/com.grandma.knit.plist" "a dry run installs nothing"
+assert_no_file "$AGENTDIR/com.grandma.knit.plist" "a dry run installs nothing"
 if command -v launchctl >/dev/null 2>&1; then
   assert_contains "would install" "macOS: it plans the launchd agent"
 else
   assert_contains "launchd is macOS-only" "Linux: it says why there is nothing to install"
   assert_contains "would write: nothing" "and is explicit that it would write nothing"
 fi
-capture env GRANDMA_HOME="$H8" GRANDMA_DRY_RUN=1 "$GBIN" knit uninstall-agent
+capture env GRANDMA_HOME="$H8" GRANDMA_DRY_RUN=1 GRANDMA_KNIT_AGENT_DIR="$AGENTDIR" "$GBIN" knit uninstall-agent
 assert_rc 0 "a dry-run uninstall runs"
 assert_contains "would unload" "and only says what it would do"
 fake_gh_invitation "$GHROOT" 77 someone "someone/grandma-knit-yard"   # restore shared state
