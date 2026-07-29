@@ -496,11 +496,12 @@ esac
 exit 0
 LCS
 chmod +x "$LC/launchctl"
-printf '/bin/bash: /x/grandma-knit.sh: Operation not permitted\n' > /tmp/grandma-knit-agent.log
+AGENTLOG="$TMP/agent.log"   # never the real one: a dev machine may have an agent using it
+printf '/bin/bash: /x/grandma-knit.sh: Operation not permitted\n' > "$AGENTLOG"
 
 # the job never ticks, so .knit-checked never moves
 capture env GRANDMA_HOME="$H9" PATH="$LC:$PATH" FAKE_AGENT_STATUS=126 \
-  GRANDMA_KNIT_AGENT_INTERVAL=60 "$GBIN" knit install-agent
+  GRANDMA_KNIT_AGENT_LOG="$AGENTLOG" GRANDMA_KNIT_AGENT_INTERVAL=60 "$GBIN" knit install-agent
 assert_rc 1 "a job that cannot run exits non-zero"
 assert_contains "did not run" "it says the check never ran"
 assert_contains "launchd exit 126" "and reports what launchd recorded"
@@ -526,8 +527,8 @@ exit 0
 LCS2
 chmod +x "$LC2/launchctl"
 printf '0\n' > "$H9/.knit-checked"
-capture env GRANDMA_HOME="$H9" PATH="$LC2:$PATH" GRANDMA_KNIT_AGENT_INTERVAL=60 \
-  "$GBIN" knit install-agent
+capture env GRANDMA_HOME="$H9" PATH="$LC2:$PATH" GRANDMA_KNIT_AGENT_LOG="$AGENTLOG" \
+  GRANDMA_KNIT_AGENT_INTERVAL=60 "$GBIN" knit install-agent
 assert_rc 0 "a working job exits 0"
 assert_contains "is live" "and is only called live once a tick has actually happened"
 assert_contains "60s" "naming the interval"

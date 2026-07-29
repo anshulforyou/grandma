@@ -890,6 +890,9 @@ cmd_poll() {
 # is a 304 that costs no rate limit and does no work. It is never installed for you.
 
 KNIT_AGENT_LABEL="com.grandma.knit"
+# Overridable so the tests can simulate a failing agent without writing into the log a
+# real agent on this machine is using.
+KNIT_AGENT_LOG="${GRANDMA_KNIT_AGENT_LOG:-/tmp/grandma-knit-agent.log}"
 knit_agent_plist() { printf '%s/Library/LaunchAgents/%s.plist' "$HOME" "$KNIT_AGENT_LABEL"; }
 knit_agent_interval() { printf '%s' "${GRANDMA_KNIT_AGENT_INTERVAL:-60}"; }
 
@@ -932,8 +935,8 @@ cmd_install_agent() {
   <key>RunAtLoad</key><true/>
   <key>ProcessType</key><string>Background</string>
   <key>LowPriorityIO</key><true/>
-  <key>StandardOutPath</key><string>/tmp/grandma-knit-agent.log</string>
-  <key>StandardErrorPath</key><string>/tmp/grandma-knit-agent.log</string>
+  <key>StandardOutPath</key><string>$KNIT_AGENT_LOG</string>
+  <key>StandardErrorPath</key><string>$KNIT_AGENT_LOG</string>
 </dict></plist>
 EOF
   # Verify by EXISTENCE, not by timestamp. Every exit path of a tick writes .knit-checked, so
@@ -966,7 +969,7 @@ EOF
   done
 
   if [[ -f "$stampf" ]]; then
-    say "background check is live: every ${interval}s (log: /tmp/grandma-knit-agent.log)"
+    say "background check is live: every ${interval}s (log: $KNIT_AGENT_LOG)"
     say "a share now reaches you within a minute, without opening grandma."
     say "remove it any time with: grandma knit uninstall-agent"
     return 0
@@ -976,7 +979,7 @@ EOF
   # and take the broken job back out rather than leaving it failing every minute forever.
   local st reason
   st="$(launchctl list 2>/dev/null | awk -v l="$KNIT_AGENT_LABEL" '$3 == l {print $2}')"
-  reason="$(tail -n 1 /tmp/grandma-knit-agent.log 2>/dev/null)"
+  reason="$(tail -n 1 "$KNIT_AGENT_LOG" 2>/dev/null)"
   launchctl unload "$plist" 2>/dev/null || true
   rm -f "$plist"
   say ""
@@ -992,7 +995,7 @@ EOF
       say "  2. grant Full Disk Access to /bin/bash in System Settings > Privacy & Security,"
       say "     then run this again. Broader than it sounds, since it applies to every script."
       ;;
-    *) say "See /tmp/grandma-knit-agent.log for what it tried." ;;
+    *) say "See $KNIT_AGENT_LOG for what it tried." ;;
   esac
   say ""
   say "Nothing else changed: knit still checks at launch, and 'grandma knit pull' always works."
