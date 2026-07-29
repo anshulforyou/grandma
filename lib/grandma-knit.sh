@@ -20,6 +20,8 @@
 #   grandma knit pull [--file <path>] [--as <sweater>]
 #   grandma knit list
 #   grandma knit contacts [list|add <name> <github-handle> [email]|remove <name>]
+#   grandma knit install-agent         check every 60s in the background (opt-in)
+#   grandma knit uninstall-agent       remove it
 #   grandma knit poll                  internal: refresh the invitation cache (backgrounded)
 #
 # Honest about its security level: a share is personal-stripped, non-secret project memory,
@@ -40,7 +42,7 @@ die()  { printf '  %s\n' "$1" >&2; exit 1; }
 dry()  { [[ "${GRANDMA_DRY_RUN:-0}" == "1" ]]; }
 
 usage() {
-  sed -n '3,27p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '3,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit "${1:-2}"
 }
 
@@ -791,6 +793,8 @@ run_bounded() {
 cmd_poll() {
   local lock="$KNIT/poll.lock"
   mkdir -p "$KNIT" 2>/dev/null
+  # A per-minute agent must never stack. mkdir is the atomic test-and-set; a tick that finds
+  # the lock held exits immediately rather than queueing behind the one already running.
   mkdir "$lock" 2>/dev/null || exit 0
   # shellcheck disable=SC2064  # expand $lock now: the trap must survive whatever follows
   trap "rmdir '$lock' 2>/dev/null || true" EXIT
@@ -798,34 +802,129 @@ cmd_poll() {
   # `gh auth status` can itself reach the network, so the poll only checks that gh EXISTS and
   # lets run_bounded cap the one call that matters. A logged-out gh just returns nothing.
   if ! command -v gh >/dev/null 2>&1; then date +%s > "$ROOT/.knit-checked" 2>/dev/null; exit 0; fi
-  local lines tmp rc=0
-  lines="$(run_bounded "${GRANDMA_KNIT_POLL_TIMEOUT:-20}" \
-    gh api /user/repository_invitations \
-      --jq ".[] | select(.repository.name | startswith(\"$REPO_PREFIX\")) | \"\(.inviter.login) shared project memory with you (\(.repository.full_name))\"")" || rc=$?
 
-  # Fail open. A timeout, a logged-out gh or an API hiccup leaves the previous cache exactly as
-  # it was: the banner is a convenience, and a bad network must never look like "nothing waiting".
-  # Only a call that actually SUCCEEDED is authoritative, and then an empty answer really does
-  # mean no invitations are pending (they were accepted, or declined, elsewhere).
-  if [[ "$rc" -eq 0 ]]; then
-    if [[ -n "$lines" ]]; then
-      # Notify only for shares that were not in the cache last time. The poll runs on every
-      # stale launch, so notifying on the whole list would re-ping the same share forever.
-      local prev line
-      prev="$(cat "$ROOT/.knit-pending" 2>/dev/null || true)"
-      while IFS= read -r line; do
-        [[ -n "$line" ]] || continue
-        printf '%s\n' "$prev" | grep -Fqx "$line" && continue
-        notify_user "grandma knit" "$line" "grandma knit pull" || true
-      done <<< "$lines"
-      tmp="$ROOT/.knit-pending.tmp"
-      printf '%s\n' "$lines" > "$tmp" 2>/dev/null && mv "$tmp" "$ROOT/.knit-pending" 2>/dev/null
-    else
-      : > "$ROOT/.knit-pending" 2>/dev/null || true
-    fi
+  # Conditional request. GitHub returns 304 when nothing has changed, and a 304 costs no rate
+  # limit at all, which is what makes a 60-second tick affordable: the steady state is a free
+  # round trip that does no work. Only a 200 is parsed, and only a 200 can notify.
+  local etagf="$KNIT/invitations.etag" etag="" resp status body newetag rc=0
+  # An ETag validates a cache we still hold. If the pending cache is gone — deleted by hand,
+  # lost, or never written — a 304 would say "unchanged" and leave us with nothing, and the
+  # banner would never return until the invitation list itself changed. So only send the
+  # conditional header when there is actually a cached answer to keep.
+  if [[ -f "$etagf" && -f "$ROOT/.knit-pending" ]]; then
+    etag="$(head -n1 "$etagf" 2>/dev/null | tr -d '\r\n')"
   fi
+  resp="$(run_bounded "${GRANDMA_KNIT_POLL_TIMEOUT:-20}" \
+    gh api -i ${etag:+-H "If-None-Match: $etag"} /user/repository_invitations)" || rc=$?
+  status="$(printf '%s' "$resp" | head -n1 | tr -d '\r')"
+
+  case "$status" in
+    *" 304"*)
+      # nothing changed: no cache write, no notification, no work
+      date +%s > "$ROOT/.knit-checked" 2>/dev/null
+      exit 0 ;;
+  esac
+  # Fail open on anything that is not a clean 200: a timeout, a logged-out gh or an API hiccup
+  # leaves the previous cache exactly as it was, because a bad network must never read as
+  # "nothing waiting".
+  case "$status" in
+    *" 200"*) : ;;
+    *) date +%s > "$ROOT/.knit-checked" 2>/dev/null; exit 0 ;;
+  esac
+  [[ "$rc" -eq 0 || "$rc" -eq 1 ]] || { date +%s > "$ROOT/.knit-checked" 2>/dev/null; exit 0; }
+
+  newetag="$(printf '%s\n' "$resp" | grep -i '^etag:' | head -n1 | tr -d '\r' | sed 's/^[Ee][Tt][Aa][Gg]:[[:space:]]*//')"
+  body="$(printf '%s\n' "$resp" | awk 'f{print} /^\r?$/{f=1}')"
+  local lines
+  lines="$(printf '%s' "$body" | jq -r \
+    ".[] | select(.repository.name | startswith(\"$REPO_PREFIX\")) | \"\(.inviter.login) shared project memory with you (\(.repository.full_name))\"" \
+    2>/dev/null)" || lines=""
+
+  if [[ -n "$lines" ]]; then
+    # Notify only for shares that were not in the cache last time. The tick runs every minute,
+    # so notifying on the whole pending list would re-ping the same share until it was pulled.
+    local prev line
+    prev="$(cat "$ROOT/.knit-pending" 2>/dev/null || true)"
+    while IFS= read -r line; do
+      [[ -n "$line" ]] || continue
+      printf '%s\n' "$prev" | grep -Fqx "$line" && continue
+      notify_user "grandma knit" "$line" "grandma knit pull" || true
+    done <<< "$lines"
+    local tmp="$ROOT/.knit-pending.tmp"
+    printf '%s\n' "$lines" > "$tmp" 2>/dev/null && mv "$tmp" "$ROOT/.knit-pending" 2>/dev/null
+  else
+    : > "$ROOT/.knit-pending" 2>/dev/null || true
+  fi
+  [[ -n "$newetag" ]] && printf '%s\n' "$newetag" > "$etagf" 2>/dev/null
   date +%s > "$ROOT/.knit-checked" 2>/dev/null
   exit 0
+}
+
+# ----------------------------------------------------------- agent ------------
+# Optional, opt-in background check. Without it, knit only looks when you launch grandma and
+# only every 8 hours, so a share can sit unseen for most of a day. With it, a tick every 60
+# seconds makes arrival effectively instant.
+#
+# A per-minute job on someone's machine has to be boring: the tick takes a lock so ticks can
+# never stack, caps its own network call, and sends a conditional request so the steady state
+# is a 304 that costs no rate limit and does no work. It is never installed for you.
+
+KNIT_AGENT_LABEL="com.grandma.knit"
+knit_agent_plist() { printf '%s/Library/LaunchAgents/%s.plist' "$HOME" "$KNIT_AGENT_LABEL"; }
+knit_agent_interval() { printf '%s' "${GRANDMA_KNIT_AGENT_INTERVAL:-60}"; }
+
+cmd_install_agent() {
+  local interval; interval="$(knit_agent_interval)"
+  if ! command -v launchctl >/dev/null 2>&1; then
+    say "launchd is macOS-only. On Linux, add a cron entry (this runs it every minute):"
+    say "  * * * * * $ENGINE/lib/grandma-knit.sh poll"
+    say "or a systemd user timer with OnUnitActiveSec=${interval}s."
+    return 1
+  fi
+  local plist; plist="$(knit_agent_plist)"
+  if dry; then
+    say "would install $KNIT_AGENT_LABEL: a check every ${interval}s"
+    say "would write: $plist"
+    return 0
+  fi
+  mkdir -p "$(dirname "$plist")"
+  cat > "$plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$KNIT_AGENT_LABEL</string>
+  <key>ProgramArguments</key><array>
+    <string>/bin/bash</string><string>$ENGINE/lib/grandma-knit.sh</string><string>poll</string>
+  </array>
+  <key>EnvironmentVariables</key><dict>
+    <key>GRANDMA_HOME</key><string>$ROOT</string>
+    <key>PATH</key><string>$(dirname "$(command -v gh 2>/dev/null || echo /usr/local/bin/gh)"):/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>StartInterval</key><integer>$interval</integer>
+  <key>RunAtLoad</key><true/>
+  <key>ProcessType</key><string>Background</string>
+  <key>LowPriorityIO</key><true/>
+  <key>StandardOutPath</key><string>/tmp/grandma-knit-agent.log</string>
+  <key>StandardErrorPath</key><string>/tmp/grandma-knit-agent.log</string>
+</dict></plist>
+EOF
+  launchctl unload "$plist" 2>/dev/null || true
+  if launchctl load "$plist" 2>/dev/null; then
+    say "background check installed: every ${interval}s (log: /tmp/grandma-knit-agent.log)"
+    say "a share now reaches you within a minute, without opening grandma."
+    say "remove it any time with: grandma knit uninstall-agent"
+  else
+    say "could not load the agent. The plist is at $plist"
+    return 1
+  fi
+}
+
+cmd_uninstall_agent() {
+  local plist; plist="$(knit_agent_plist)"
+  if dry; then say "would unload and remove $plist"; return 0; fi
+  command -v launchctl >/dev/null 2>&1 && launchctl unload "$plist" 2>/dev/null
+  if [[ -f "$plist" ]]; then rm -f "$plist"; say "background check removed."
+  else say "no background check was installed."; fi
 }
 
 # ----------------------------------------------------------------- dispatch ----
@@ -833,7 +932,7 @@ cmd_poll() {
 # Anything that can write to the home ensures the ignore rule first. A dry run must stay
 # side-effect free, so it is exempt (and it writes nothing to guard against either).
 case "${1:-}" in
-  share|pull|poll|contacts) dry || ensure_knit_ignored ;;
+  share|pull|poll|contacts|install-agent) dry || ensure_knit_ignored ;;
 esac
 
 case "${1:-}" in
@@ -842,6 +941,8 @@ case "${1:-}" in
   list)  shift; cmd_list ;;
   contacts) shift; cmd_contacts "$@" ;;
   poll)  shift; cmd_poll ;;
+  install-agent)   shift; cmd_install_agent ;;
+  uninstall-agent) shift; cmd_uninstall_agent ;;
   help|-h|--help) usage 0 ;;
   *)     usage 2 ;;
 esac

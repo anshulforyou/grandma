@@ -46,6 +46,11 @@
 - `grandma knit` sends a desktop notification the moment a share turns up, as well as the
   line at launch, so you hear about it without opening grandma first. Once per share, not
   once per check.
+- `grandma knit install-agent`: an opt-in background check every 60 seconds, so a share
+  reaches you within a minute instead of waiting for your next `grandma` launch. It uses a
+  conditional request, and GitHub does not bill a `304 Not Modified`, so the steady state
+  costs no rate limit and does no work. A tick takes a lock so ticks can never stack, caps
+  its own network call, and notifies once per share. `uninstall-agent` removes it.
 - Fixed: only a real sweater can be loaded. Any top-level directory in the memory home used to
   resolve as one, so `grandma proposals` assembled every sweater's pending proposals into a
   single session. Resolution now goes through `list_scopes`, in both the launcher and

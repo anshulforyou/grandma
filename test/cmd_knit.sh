@@ -365,6 +365,90 @@ assert_contains "would save" "and only says what it would do"
 capture cat "$H/.knit/contacts.tsv"
 assert_not_contains "dry-gh" "a dry run writes nothing"
 
+# ------------------------------------------------------- the background agent -
+# A job that runs every 60 seconds on someone's machine has two ways to be unacceptable:
+# pinging them about the same thing forever, and piling up processes. Both are pinned here.
+
+section "agent — repeated ticks ping ONCE per share, not once per tick"
+H8="$TMP/home8"; make_fixture_home "$H8"
+NB2="$TMP/notif2"; mkdir -p "$NB2"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s"\nexit 0\n' "$TMP/pings.log" > "$NB2/osascript"
+chmod +x "$NB2/osascript"
+: > "$TMP/pings.log"; : > "$GHROOT/api-calls.log"; : > "$GHROOT/api-304.log"
+fake_gh_invitation "$GHROOT" 100 moksh "moksh/grandma-knit-sxs"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  env GRANDMA_HOME="$H8" GH_FAKE_LOGIN=me PATH="$NB2:$PATH" "$ENGINE/lib/grandma-knit.sh" poll
+done
+pings=$(grep -c "shared project memory" "$TMP/pings.log" 2>/dev/null || echo 0)
+[ "$pings" = "1" ] && ok "10 ticks produced exactly 1 notification" \
+                   || fail "expected 1 notification from 10 ticks, got $pings"
+
+section "agent — a tick that changes nothing costs no rate limit"
+# The conditional request is what makes 60s affordable: GitHub answers 304 and does not bill
+# it. Without it, a per-minute job would burn 1,440 requests a day to learn nothing.
+calls=$(wc -l < "$GHROOT/api-calls.log" | tr -d ' ')
+free=$(wc -l < "$GHROOT/api-304.log" | tr -d ' ')
+[ "$calls" = "10" ] && ok "10 ticks made 10 requests"  || fail "expected 10 requests, got $calls"
+[ "$free" = "9" ]   && ok "9 of them were free 304s (only the first did work)" \
+                    || fail "expected 9 conditional 304s, got $free"
+
+section "agent — a NEW share pings, and the one beside it is NOT re-announced"
+# The case dedup actually exists for. Ticks that change nothing are already silenced by the
+# 304, so the only way to exercise dedup is a list that CHANGES while still holding a share
+# that was announced before: moksh stays pending, satwik arrives.
+fake_gh_invitations "$GHROOT" "100:moksh:moksh/grandma-knit-sxs" "101:satwik:satwik/grandma-knit-adapter"
+env GRANDMA_HOME="$H8" GH_FAKE_LOGIN=me PATH="$NB2:$PATH" "$ENGINE/lib/grandma-knit.sh" poll
+capture cat "$TMP/pings.log"
+assert_contains "satwik shared project memory" "the new share is announced"
+n=$(grep -c "moksh shared project memory" "$TMP/pings.log")
+[ "$n" = "1" ] && ok "and moksh, still pending beside it, is NOT announced again" \
+               || fail "the already-known share was re-announced ($n times total)"
+
+section "agent — ticks cannot stack, however often they fire"
+# The lock is the thing standing between a per-minute job and a pile of processes.
+mkdir -p "$H8/.knit/poll.lock"
+before=$(wc -l < "$GHROOT/api-calls.log" | tr -d ' ')
+for _ in 1 2 3 4 5; do
+  env GRANDMA_HOME="$H8" GH_FAKE_LOGIN=me PATH="$NB2:$PATH" "$ENGINE/lib/grandma-knit.sh" poll
+done
+after=$(wc -l < "$GHROOT/api-calls.log" | tr -d ' ')
+[ "$before" = "$after" ] && ok "5 ticks against a held lock made 0 requests and did no work" \
+                         || fail "a locked-out tick still worked: $before -> $after"
+rmdir "$H8/.knit/poll.lock"
+env GRANDMA_HOME="$H8" GH_FAKE_LOGIN=me PATH="$NB2:$PATH" "$ENGINE/lib/grandma-knit.sh" poll
+[ "$(wc -l < "$GHROOT/api-calls.log" | tr -d ' ')" -gt "$after" ] \
+  && ok "and the lock releasing is what let work resume" || fail "no work after the lock was freed"
+
+section "agent — a tick leaves no process behind and bounds its own runtime"
+SLOW2="$TMP/slow2"; mkdir -p "$SLOW2"
+printf '#!/usr/bin/env bash\nsleep 120\n' > "$SLOW2/gh"; chmod +x "$SLOW2/gh"
+t0=$(date +%s)
+env GRANDMA_HOME="$H8" GRANDMA_KNIT_POLL_TIMEOUT=2 PATH="$SLOW2:$PATH" "$ENGINE/lib/grandma-knit.sh" poll
+el=$(( $(date +%s) - t0 ))
+[ "$el" -le 8 ] && ok "a hung request was cut off after ${el}s, not left running" \
+                || fail "the tick ran for ${el}s: the cap did not hold"
+assert_no_file "$H8/.knit/poll.lock" "and the lock was released, so the next tick is not blocked forever"
+
+section "agent — state files stay small no matter how many ticks run"
+# A per-minute job that appends anywhere would fill a disk in a week.
+for f in .knit-pending .knit-checked .knit/invitations.etag; do
+  [ -f "$H8/$f" ] || continue
+  sz=$(wc -c < "$H8/$f" | tr -d ' ')
+  [ "$sz" -lt 4096 ] && ok "$f is ${sz} bytes after ~17 ticks (bounded)" \
+                     || fail "$f grew to ${sz} bytes"
+done
+
+section "agent — install and uninstall are opt-in and reversible"
+capture env GRANDMA_HOME="$H8" GRANDMA_DRY_RUN=1 "$GBIN" knit install-agent
+assert_rc 0 "a dry-run install runs"
+assert_contains "would install" "and only says what it would do"
+assert_contains "60s" "naming the interval"
+assert_no_file "$HOME/Library/LaunchAgents/com.grandma.knit.plist" "a dry run installs nothing"
+capture env GRANDMA_HOME="$H8" GRANDMA_DRY_RUN=1 "$GBIN" knit uninstall-agent
+assert_rc 0 "a dry-run uninstall runs"
+assert_contains "would unload" "and only says what it would do"
+fake_gh_invitation "$GHROOT" 77 someone "someone/grandma-knit-yard"   # restore shared state
+
 # ------------------------------------------------------- the launch poll -------
 section "poll — fills the cache the launch banner reads"
 H3="$TMP/home3"; make_fixture_home "$H3"
@@ -446,7 +530,7 @@ capture cat "$TMP/notified.log"
 assert_contains "something happened — run: grandma do-the-thing" "the body is self-sufficient"
 
 section "notice — throttled: a fresh check does not re-poll, a stale one does"
-: > "$H3/.knit-pending"; date +%s > "$H3/.knit-checked"
+: > "$H3/.knit-pending"; rm -f "$H3/.knit/invitations.etag"; date +%s > "$H3/.knit-checked"
 capture notice "$H3"
 sleep 1
 capture cat "$H3/.knit-pending"
@@ -468,7 +552,7 @@ assert_contains "someone shared project memory" "launch prints the waiting share
 assert_file "$TMP/launched" "and the session itself really started (the banner did not abort it)"
 
 section "poll — a held lock stops a second poll (no siblings piling up on every launch)"
-: > "$H3/.knit-pending"
+: > "$H3/.knit-pending"; rm -f "$H3/.knit/invitations.etag"
 mkdir -p "$H3/.knit/poll.lock"
 capture env GRANDMA_HOME="$H3" GH_FAKE_LOGIN=mate "$ENGINE/lib/grandma-knit.sh" poll
 assert_rc 0 "a locked-out poll still exits 0"

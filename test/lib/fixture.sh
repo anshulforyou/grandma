@@ -90,11 +90,13 @@ case "\$1 \${2:-}" in
 esac
 if [ "\$1" = "api" ]; then
   shift
-  method=GET; target=""; jqexpr=""
+  method=GET; target=""; jqexpr=""; inm=""; incl=0
   while [ \$# -gt 0 ]; do
     case "\$1" in
       --method) method="\$2"; shift 2 ;;
       --jq) jqexpr="\$2"; shift 2 ;;
+      -H) case "\$2" in "If-None-Match: "*) inm="\${2#If-None-Match: }" ;; esac; shift 2 ;;
+      -i) incl=1; shift ;;
       -f) shift 2 ;;
       *) [ -z "\$target" ] && target="\$1"; shift ;;
     esac
@@ -102,6 +104,18 @@ if [ "\$1" = "api" ]; then
   case "\$method:\$target" in
     GET:user) [ "\$jqexpr" = ".login" ] && echo "\$LOGIN" || echo "{\"login\":\"\$LOGIN\"}"; exit 0 ;;
     GET:/user/repository_invitations)
+      # ETag is the content hash, so an unchanged list answers 304 exactly like GitHub does
+      tag=\$(cksum < "\$R/invitations.json" | tr -d " ")
+      echo "\$(date +%s)" >> "\$R/api-calls.log"
+      if [ -n "\$inm" ] && [ "\$inm" = "W/\"\$tag\"" ]; then
+        echo "\$(date +%s)" >> "\$R/api-304.log"
+        [ "\$incl" = 1 ] && printf 'HTTP/2.0 304 Not Modified\\r\\n\\r\\n'
+        exit 1
+      fi
+      if [ "\$incl" = 1 ]; then
+        printf 'HTTP/2.0 200 OK\\r\\nETag: W/"%s"\\r\\n\\r\\n' "\$tag"
+        cat "\$R/invitations.json"; exit 0
+      fi
       if [ -n "\$jqexpr" ]; then jq -r "\$jqexpr" < "\$R/invitations.json"; else cat "\$R/invitations.json"; fi; exit 0 ;;
     GET:/user/repos*)
       out=""
@@ -129,6 +143,19 @@ exit 1
 SHIM
   chmod +x "$dir/gh"
   printf '%s' "$dir/gh"
+}
+
+# fake_gh_invitations <fake_github_dir> <id:inviter:full_name>... — queue SEVERAL pending
+# invitations at once. Needed to exercise deduplication: a list that changes while still
+# containing something already announced is the only case where dedup does any work.
+fake_gh_invitations() {
+  local ghroot="$1"; shift
+  local out="" spec id inviter full
+  for spec in "$@"; do
+    id="${spec%%:*}"; spec="${spec#*:}"; inviter="${spec%%:*}"; full="${spec#*:}"
+    out="$out{\"id\":$id,\"inviter\":{\"login\":\"$inviter\"},\"repository\":{\"name\":\"${full#*/}\",\"full_name\":\"$full\"}},"
+  done
+  printf '[%s]\n' "${out%,}" > "$ghroot/invitations.json"
 }
 
 # fake_gh_invitation <fake_github_dir> <id> <inviter> <full_name> — queue a pending repository
