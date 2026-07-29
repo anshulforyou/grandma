@@ -38,6 +38,9 @@
   the install command for your machine, and offers to run it. A logged-out `gh` offers to sign
   you in. Both ask first, only on a terminal, and always leave the no-GitHub `--file` route
   in view.
+- A knit invite now grants read access rather than write. A recipient only ever clones and
+  fetches, and `knit pull` no longer treats your own share repo as an inbox, so nothing
+  sitting in it can arrive in your review queue attributed to someone else.
 - Desktop notifications now say what to run. A macOS notification sent through `osascript` is
   attributed to Script Editor and has no click action at all, so clicking one opened an empty
   Script Editor window. The command is now in the notification body, and when

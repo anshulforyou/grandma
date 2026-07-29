@@ -170,6 +170,37 @@ assert_not_contains "Test User" "and the sender's personal lines never left thei
 capture cat "$H2/.knit/ledger.tsv"
 assert_contains "testuser" "provenance is recorded in the ledger"
 
+section "pull — your OWN share repo is not an inbox"
+# Raised in review. /user/repos returns repos you own as well as ones shared with you, so
+# discovery cloned your own outbox and ingest_dir, which reads the sender from the filename,
+# turned anything sitting in it into a proposal attributed to whoever it was named after.
+# With push access that meant an invitee could put an attributed proposal in your queue.
+H11="$TMP/home11"; make_fixture_home "$H11"
+GH3="$TMP/gh3"; mkdir -p "$GH3"; printf '[]\n' > "$GH3/invitations.json"
+git init -q --bare "$GH3/mate/grandma-knit-yard.git"
+WO="$TMP/ownwork"; rm -rf "$WO"; git clone -q "$GH3/mate/grandma-knit-yard.git" "$WO"
+mkdir -p "$WO/shares"
+printf -- '---\nknit: 1\nproject: Yard\nfrom: ana\nshared: 2026-07-29\n---\n\n- written into someone else\x27s repo\n' \
+  > "$WO/shares/ana.md"
+git -C "$WO" add -A >/dev/null 2>&1
+git -C "$WO" -c user.name=t -c user.email=t@e commit -qm own >/dev/null 2>&1
+git -C "$WO" push -q origin HEAD >/dev/null 2>&1
+# mate is ME: this repo is my own outbox, so nothing in it should be ingested
+capture env GRANDMA_HOME="$H11" GH_FAKE_ROOT="$GH3" GH_FAKE_LOGIN=mate "$GBIN" knit pull
+assert_rc 0 "pull runs"
+assert_not_contains "proposal from ana" "a file in YOUR OWN repo is not ingested as a share"
+assert_contains "nothing new to knit in" "and there is nothing to report"
+assert_no_file "$H11/.knit/in/mate_grandma-knit-yard" "your own repo is never cloned into the inbox"
+capture env GRANDMA_HOME="$H11" GH_FAKE_ROOT="$GH3" GH_FAKE_LOGIN=mate "$GBIN" knit list
+assert_not_contains "mate/grandma-knit-yard" "and it does not show under 'shared with you'"
+
+section "share — a recipient gets read access, not write"
+# Raised in review: the recipient only ever clones and fetches, so push is broader than the
+# feature needs and is what made the above reachable by an invitee.
+capture grep -n "collaborators/\$u" "$ENGINE/lib/grandma-knit.sh"
+assert_contains "permission=pull" "the invite grants pull"
+assert_not_contains "permission=push" "not push"
+
 section "pull again — the ledger stops the same share arriving twice"
 printf '[]\n' > "$GHROOT/invitations.json"
 capture env GRANDMA_HOME="$H2" GH_FAKE_LOGIN=mate "$GBIN" knit pull
@@ -209,6 +240,35 @@ n=$(printf '%s' "$LAST_OUT" | grep -c "review --apply")
                || fail "expected 2 review commands, got $n"
 
 fake_gh_invitation "$GHROOT" 4242 testuser "testuser/grandma-knit-yard"   # restore shared state
+
+section "two-way — each side receives the other's memory, and never its own back"
+# Asked for in review before merge. Everything else tests one direction; this is the actual
+# use: two people on one project, each sharing and each pulling.
+GH4="$TMP/gh4"; mkdir -p "$GH4"; printf '[]\n' > "$GH4/invitations.json"
+HA="$TMP/ana"; HB="$TMP/bo"; make_fixture_home "$HA"; make_fixture_home "$HB"
+printf '# Yard\n- ANA: the mower needs the choke held ten seconds\n' > "$HA/projects/yard/CLAUDE.md"
+printf '# Yard\n- BO: the shed padlock sticks in the cold\n'        > "$HB/projects/yard/CLAUDE.md"
+
+capture env GRANDMA_HOME="$HA" GH_FAKE_ROOT="$GH4" GH_FAKE_LOGIN=ana "$GBIN" knit share home-ops yard --to bo --yes
+assert_rc 0 "ana shares"
+fake_gh_invitation "$GH4" 1 ana "ana/grandma-knit-yard"
+capture env GRANDMA_HOME="$HB" GH_FAKE_ROOT="$GH4" GH_FAKE_LOGIN=bo "$GBIN" knit pull
+assert_contains "proposal from ana" "bo receives it"
+
+capture env GRANDMA_HOME="$HB" GH_FAKE_ROOT="$GH4" GH_FAKE_LOGIN=bo "$GBIN" knit share home-ops yard --to ana --yes
+assert_rc 0 "bo shares back"
+fake_gh_invitation "$GH4" 2 bo "bo/grandma-knit-yard"
+capture env GRANDMA_HOME="$HA" GH_FAKE_ROOT="$GH4" GH_FAKE_LOGIN=ana "$GBIN" knit pull
+assert_contains "proposal from bo" "ana receives the reply"
+
+capture cat "$HA/proposals/"*knit*.md
+assert_contains "BO: the shed padlock" "ana got bo's note"
+assert_not_contains "ANA: the mower" "and not her own echoed back"
+capture cat "$HB/proposals/"*knit*.md
+assert_contains "ANA: the mower" "bo got ana's note"
+assert_not_contains "BO: the shed padlock" "and not his own echoed back"
+assert_no_file "$HA/.knit/in/ana_grandma-knit-yard" "neither side ingests its own repo"
+assert_no_file "$HB/.knit/in/bo_grandma-knit-yard" "on either end"
 
 section "knit — a home that predates knit gets the ignore rule before ANY write"
 # The real case: a memory home created before knit shipped has no .knit line, and the very

@@ -72,7 +72,7 @@ make_fixture_home() {
 #   gh api /user/repository_invitations [--jq ...]  -> the JSON in <fake_github_dir>/invitations.json
 #   gh api --method PATCH /user/repository_invitations/<id> -> records the id in accepted.log
 #   gh api --method PUT repos/<o>/<r>/collaborators/<u>     -> records the invite in invites.log
-#   gh api /user/repos [--jq ...]                   -> every bare repo in <fake_github_dir>
+#   gh api /user/repos [--jq ...]                   -> every bare repo, with owner.login
 #   gh repo view <owner>/<name>                     -> 0 only if the bare repo exists
 #   gh repo create <owner>/<name> --private         -> git init --bare
 #   gh repo clone <owner>/<name> <dir>              -> git clone from the bare repo
@@ -122,7 +122,7 @@ if [ "\$1" = "api" ]; then
       for d in "\$R"/*/*.git; do
         [ -d "\$d" ] || continue
         o=\$(basename "\$(dirname "\$d")"); n=\$(basename "\$d" .git)
-        out="\$out{\"name\":\"\$n\",\"full_name\":\"\$o/\$n\"},"
+        out="\$out{\"name\":\"\$n\",\"full_name\":\"\$o/\$n\",\"owner\":{\"login\":\"\$o\"}},"
       done
       printf '[%s]\n' "\${out%,}" | { [ -n "\$jqexpr" ] && jq -r "\$jqexpr" || cat; }; exit 0 ;;
     PATCH:/user/repository_invitations/*)

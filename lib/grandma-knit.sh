@@ -505,7 +505,10 @@ EOF
 
   local u
   for u in ${to[@]+"${to[@]}"}; do
-    if gh api --method PUT "repos/$sender/$repo/collaborators/$u" -f permission=push >/dev/null 2>&1; then
+    # `pull`, not `push`: a recipient only ever clones and fetches. Write access would let an
+    # invitee put a file into your repo, and since a pull ingests by filename, it would arrive
+    # in your own review queue attributed to whoever they named it after.
+    if gh api --method PUT "repos/$sender/$repo/collaborators/$u" -f permission=pull >/dev/null 2>&1; then
       say "invited $u — GitHub emails them, and their grandma offers the pull at launch"
       note_ledger out "$u" "$RP_NAME" "$sender/$repo" "-"
       _uemail=""
@@ -660,8 +663,11 @@ cmd_pull() {
     if gh repo clone "$full" "$dest" >/dev/null 2>&1; then
       say "found $full (you already had access)"
     fi
+  # /user/repos returns repos you OWN as well as ones shared with you. Cloning your own turns
+  # your outbox into an inbox: anything sitting in it is ingested as a share from whoever the
+  # filename names. Your own shares are not news to you either way.
   done < <(gh api "/user/repos?per_page=100" \
-             --jq ".[] | select(.name | startswith(\"$REPO_PREFIX\")) | .full_name" 2>/dev/null || true)
+             --jq ".[] | select(.name | startswith(\"$REPO_PREFIX\")) | select(.owner.login != \"$me\") | .full_name" 2>/dev/null || true)
 
   # 3. refresh everything we already have, and ingest what is new
   local d where
