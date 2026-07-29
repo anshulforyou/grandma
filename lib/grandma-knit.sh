@@ -953,7 +953,15 @@ KNIT_AGENT_LOG="${GRANDMA_KNIT_AGENT_LOG:-$KNIT/agent.log}"
 knit_agent_plist() {
   printf '%s/%s.plist' "${GRANDMA_KNIT_AGENT_DIR:-$HOME/Library/LaunchAgents}" "$KNIT_AGENT_LABEL"
 }
-knit_agent_interval() { printf '%s' "${GRANDMA_KNIT_AGENT_INTERVAL:-60}"; }
+# Clamped. The value goes straight into StartInterval, and `=1` would install a job ticking
+# every second. Non-numeric already fails safe, since launchd refuses the plist and install
+# reports it, but a small number is accepted silently and is the worse case.
+knit_agent_interval() {
+  local v="${GRANDMA_KNIT_AGENT_INTERVAL:-60}"
+  case "$v" in ''|*[!0-9]*) printf '60'; return 0 ;; esac
+  [[ "$v" -lt 30 ]] && { printf '30'; return 0; }
+  printf '%s' "$v"
+}
 
 cmd_install_agent() {
   local interval; interval="$(knit_agent_interval)"

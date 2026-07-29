@@ -39,6 +39,18 @@ for command in share pull list contacts install-agent uninstall-agent; do
 done
 assert_not_contains "poll" "poll is internal and not offered"
 
+section "completions - knit share completes the PROJECT slot in every shell"
+# Raised in review: bash handled `knit share <sweater> <TAB>` and completed projects, zsh and
+# fish stopped at the sweater. That last slot is where completion earns its keep, and the
+# non-knit path already completes projects in all three, so it was an internal inconsistency.
+capture env "$GBIN" completions bash
+assert_contains "COMP_CWORD} -eq 4" "bash has the project slot"
+capture env "$GBIN" completions zsh
+assert_contains "CURRENT == 5" "zsh has it too"
+assert_contains "__projects \${words[4]}" "and reads the sweater from the right word"
+capture env "$GBIN" completions fish
+assert_contains "-eq 4; and test (commandline -opc)[2] = knit" "fish has it as well"
+
 section "completions - projects under a scope (kebab-safe)"
 capture env "$GBIN" completions __projects home-ops
 assert_rc 0 "completions __projects home-ops runs (kebab scope resolves, not truncated to 'home')"

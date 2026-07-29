@@ -114,6 +114,15 @@ _grandma_complete() {
   elif (( CURRENT == 4 )) && [[ "${words[2]}" == "knit" && "${words[3]}" == "share" ]]; then
     scopes=(${(f)"$(grandma completions __scopes 2>/dev/null)"})
     compadd -a scopes
+  elif (( CURRENT == 5 )) && [[ "${words[2]}" == "knit" && "${words[3]}" == "share" ]]; then
+    # `knit share <sweater> <project>`: the slot where completion earns its keep
+    lines=(${(f)"$(grandma completions __projects ${words[4]} 2>/dev/null)"})
+    local l
+    for l in $lines; do
+      toks+=("${l%%$'\t'*}")
+      descs+=("${l#*$'\t'}")
+    done
+    (( ${#toks} )) && compadd -d descs -a toks
   elif (( CURRENT == 3 )); then
     case "${words[2]}" in
       save|review|ingest|test|search)
@@ -151,6 +160,7 @@ complete -c grandma -n 'test (count (commandline -opc)) -eq 1' -a '(grandma comp
 complete -c grandma -n 'test (count (commandline -opc)) -eq 2; and test (commandline -opc)[2] = knit' -a '(grandma completions __knit_commands 2>/dev/null)'
 complete -c grandma -n 'test (count (commandline -opc)) -eq 2; and test (commandline -opc)[2] != knit' -a '(grandma completions __projects (commandline -opc)[2] 2>/dev/null)'
 complete -c grandma -n 'test (count (commandline -opc)) -eq 3; and test (commandline -opc)[2] = knit; and test (commandline -opc)[3] = share' -a '(grandma completions __scopes 2>/dev/null)'
+complete -c grandma -n 'test (count (commandline -opc)) -eq 4; and test (commandline -opc)[2] = knit; and test (commandline -opc)[3] = share' -a '(grandma completions __projects (commandline -opc)[4] 2>/dev/null)'
 FISH
 }
 

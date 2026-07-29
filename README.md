@@ -183,7 +183,7 @@ Eight recipes with real transcripts in [docs/use-cases.md](docs/use-cases.md):
 
 ## Trust
 
-- **12 tested invariants** guard the core promise: loading sweater X injects exactly global + X and nothing else, the engine contains no sweater jargon and no personal data, no secrets in memory, hooks cannot recurse or run away. The suite gates every commit and runs in CI on macOS and Linux.
+- **15 tested invariants** guard the core promise: loading sweater X injects exactly global + X and nothing else, only a real sweater can be loaded at all, the engine contains no sweater jargon and no personal data, no secrets in memory, hooks cannot recurse or run away, and a shared memory cannot leave without being stripped and shown to you. The suite gates every commit and runs in CI on macOS and Linux.
 - **No telemetry, no server, no accounts.** Your memory never leaves your machine.
 - Failure modes are documented, not hidden: [docs/architecture.md](docs/architecture.md) includes the war stories, like the day a hook recursion produced 4,718 files before the circuit breaker existed.
 

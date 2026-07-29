@@ -715,6 +715,16 @@ assert_contains "wrote nothing to" "it says the log is empty rather than pointin
 assert_contains "cannot write there" "and names the likeliest cause"
 assert_not_contains "for what it tried" "it does not send you to a file that does not exist"
 
+section "agent — the tick interval has a floor"
+# Raised in review: the value goes straight into StartInterval unvalidated, so =1 would install
+# a job ticking every second. Non-numeric already failed safe because launchd refuses the plist.
+sed -n '/^knit_agent_interval()/,/^}/p' "$ENGINE/lib/grandma-knit.sh" > "$TMP/iv.sh"
+for pair in "1:30" "29:30" "30:30" "60:60" "900:900" "abc:60"; do
+  got="$(env GRANDMA_KNIT_AGENT_INTERVAL="${pair%%:*}" bash -c ". '$TMP/iv.sh'; knit_agent_interval")"
+  [ "$got" = "${pair##*:}" ] && ok "interval ${pair%%:*} clamps to ${pair##*:}" \
+                            || fail "interval ${pair%%:*} gave $got, wanted ${pair##*:}"
+done
+
 section "agent — install and uninstall are opt-in and reversible"
 capture env GRANDMA_HOME="$H8" GRANDMA_DRY_RUN=1 GRANDMA_KNIT_AGENT_DIR="$AGENTDIR" "$GBIN" knit install-agent
 assert_rc 0 "a dry-run install runs (on any platform, not just macOS)"
