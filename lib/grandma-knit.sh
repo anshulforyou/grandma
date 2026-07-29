@@ -977,7 +977,11 @@ cmd_install_agent() {
     say "or a systemd user timer with OnUnitActiveSec=${interval}s."
     return 1
   fi
-  mkdir -p "$(dirname "$plist")"
+  # launchd is about to be given a StandardOutPath inside $KNIT, so $KNIT has to exist. It is
+  # created by poll, share, contact_save and note_ledger, which covers anyone who has used knit
+  # before and nobody whose FIRST knit command is install-agent, which is a normal way to start.
+  # /tmp always existed, so moving the log here surfaced this.
+  mkdir -p "$KNIT" "$(dirname "$plist")"
   cat > "$plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -1054,7 +1058,9 @@ EOF
       say "  2. grant Full Disk Access to /bin/bash in System Settings > Privacy & Security,"
       say "     then run this again. Broader than it sounds, since it applies to every script."
       ;;
-    *) say "See $KNIT_AGENT_LOG for what it tried." ;;
+    "") say "It wrote nothing to $KNIT_AGENT_LOG, so launchd could not start it at all."
+        say "Most often that means it cannot write there: check the path exists and is writable." ;;
+    *)  say "See $KNIT_AGENT_LOG for what it tried." ;;
   esac
   say ""
   say "Nothing else changed: knit still checks at launch, and 'grandma knit pull' always works."

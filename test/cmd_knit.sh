@@ -690,6 +690,31 @@ capture grep -n 'KNIT_AGENT_LOG=' "$ENGINE/lib/grandma-knit.sh"
 assert_contains 'KNIT/agent.log' "the default log path is under \$KNIT"
 assert_not_contains "/tmp/grandma" "and not a predictable name in /tmp"
 
+section "agent — install works when it is the FIRST knit command ever run"
+# Raised in review, and a consequence of moving the log under .knit/: nothing on the install
+# path created $KNIT, so launchd was handed a StandardOutPath whose parent did not exist.
+# /tmp always existed, which is why moving the log surfaced it. install-agent is a normal
+# first command, since it is the set-it-up-once one.
+HN="$TMP/neverknit"; make_fixture_home "$HN"
+assert_no_file "$HN/.knit" "the fresh home has no .knit yet"
+capture env GRANDMA_HOME="$HN" PATH="$LC2:$PATH" GRANDMA_KNIT_AGENT_LOG="$HN/.knit/agent.log" \
+  GRANDMA_KNIT_AGENT_DIR="$AGENTDIR" GRANDMA_KNIT_AGENT_INTERVAL=60 "$GBIN" knit install-agent
+assert_file "$HN/.knit" "install-agent creates it before handing launchd a path inside it"
+rm -f "$AGENTDIR/com.grandma.knit.plist"
+
+section "agent — a job that wrote no log at all is explained, not pointed at an empty file"
+# The failure path exists to explain an obscure problem in plain terms. When the job could not
+# start at all there is no log to quote, and it used to say "see <log>" for a file that cannot
+# exist, going quiet exactly where it is meant to talk.
+HQ="$TMP/quietfail"; make_fixture_home "$HQ"
+: > "$AGENTLOG"
+capture env GRANDMA_HOME="$HQ" PATH="$LC:$PATH" FAKE_AGENT_STATUS=0 \
+  GRANDMA_KNIT_AGENT_LOG="$AGENTLOG" GRANDMA_KNIT_AGENT_DIR="$AGENTDIR" "$GBIN" knit install-agent
+assert_rc 1 "a job that never ticked still fails"
+assert_contains "wrote nothing to" "it says the log is empty rather than pointing at it"
+assert_contains "cannot write there" "and names the likeliest cause"
+assert_not_contains "for what it tried" "it does not send you to a file that does not exist"
+
 section "agent — install and uninstall are opt-in and reversible"
 capture env GRANDMA_HOME="$H8" GRANDMA_DRY_RUN=1 GRANDMA_KNIT_AGENT_DIR="$AGENTDIR" "$GBIN" knit install-agent
 assert_rc 0 "a dry-run install runs (on any platform, not just macOS)"
