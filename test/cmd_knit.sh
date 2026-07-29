@@ -632,12 +632,15 @@ assert_contains "something happened — run: grandma do-the-thing" "the body is 
 section "notice — throttled: a fresh check does not re-poll, a stale one does"
 : > "$H3/.knit-pending"; rm -f "$H3/.knit/invitations.etag"; date +%s > "$H3/.knit-checked"
 capture notice "$H3"
-sleep 1
+# a fresh cache should spawn nothing, so give a would-be poll ample time to prove it did not
+wait_until 3 grep -q "someone shared" "$H3/.knit-pending" || true
 capture cat "$H3/.knit-pending"
 assert_not_contains "someone shared" "a fresh cache spawns no poll (nothing refilled it)"
 printf '%s' "$(( $(date +%s) - 40000 ))" > "$H3/.knit-checked"
 capture notice "$H3"
-sleep 1
+# the poll is BACKGROUNDED: wait for it to land rather than guessing at a fixed sleep, which
+# passes on a quiet machine and fails on a loaded CI runner
+wait_until 15 grep -q "someone shared" "$H3/.knit-pending"
 capture cat "$H3/.knit-pending"
 assert_contains "someone shared" "a stale cache does spawn the background poll"
 

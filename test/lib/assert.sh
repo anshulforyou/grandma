@@ -37,6 +37,19 @@ assert_not_contains() { case "$LAST_OUT" in (*"$1"*) fail "$2 — unexpected: $1
 assert_file()         { if [ -e "$1" ]; then ok "$2"; else fail "$2 — missing file: $1"; fi; }
 assert_no_file()      { if [ -e "$1" ]; then fail "$2 — unexpected file: $1"; else ok "$2"; fi; }
 
+# wait_until <secs> <cmd...> — poll until the command succeeds, or give up after <secs>.
+# For anything racing a BACKGROUND process: a fixed `sleep 1` is a guess that passes on a
+# quiet machine and fails on a loaded CI runner, which is the worst kind of test.
+wait_until() {
+  local secs="$1"; shift
+  local i=0
+  while [ "$i" -lt $((secs * 10)) ]; do
+    "$@" >/dev/null 2>&1 && return 0
+    sleep 0.1; i=$((i + 1))
+  done
+  return 1
+}
+
 # ---- process helpers (lifted from test/onboard.sh, proven there) ----
 
 # Run a command with a hard wall-clock cap. rc 142 = killed by SIGALRM (it hung).
