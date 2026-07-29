@@ -154,7 +154,11 @@ capture env GRANDMA_HOME="$H2" GH_FAKE_LOGIN=mate "$GBIN" knit pull
 assert_rc 0 "pull runs for the receiver"
 assert_contains "accepted the invitation to testuser/grandma-knit-yard" "accepts the pending invitation"
 assert_contains "proposal from testuser" "writes a proposal from the teammate's share"
-assert_contains "1 new share(s)" "counts what came in"
+# Someone else's memory is the thing you want to read on its own, so pull names THAT file
+# rather than sending you to `grandma review`, which buries it among your own distills.
+assert_contains "review --apply" "points at the share that just arrived"
+assert_contains "home-ops-knit-yard-" "naming that exact proposal file"
+assert_not_contains "review them: grandma review" "not at the whole proposal queue"
 capture cat "$GHROOT/accepted.log"
 assert_contains "4242" "the invitation was accepted through the API, not just locally"
 prop2="$(ls -1 "$H2/proposals/"home-ops-knit-*.md 2>/dev/null | head -1)"
@@ -179,7 +183,32 @@ printf -- '- the shed padlock sticks in the cold\n' >> "$H/projects/yard/CLAUDE.
 capture env GRANDMA_HOME="$H" "$GBIN" knit share home-ops yard --yes
 assert_contains "pushed your Yard memory" "the sender pushes the update"
 capture env GRANDMA_HOME="$H2" GH_FAKE_LOGIN=mate "$GBIN" knit pull
-assert_contains "1 new share(s)" "the receiver sees the update as a new proposal"
+assert_contains "review --apply" "the receiver is pointed at the updated share itself"
+
+section "pull — two shares at once are each offered separately"
+# Its own fake GitHub: the discovery step legitimately clones every knit repo the account can
+# reach, so sharing the main one would fold in every repo the earlier sections created.
+H10="$TMP/home10"; make_fixture_home "$H10"
+GH2="$TMP/gh2"; mkdir -p "$GH2"; printf '[]\n' > "$GH2/invitations.json"
+git init -q --bare "$GH2/two/grandma-knit-yard.git"
+W="$TMP/twowork"; rm -rf "$W"; git clone -q "$GH2/two/grandma-knit-yard.git" "$W"
+mkdir -p "$W/shares"
+for who in ana bo; do
+  printf -- '---\nknit: 1\nproject: Yard\nfrom: %s\nshared: 2026-07-29\n---\n\n- %s knows the gate sticks\n' \
+    "$who" "$who" > "$W/shares/$who.md"
+done
+git -C "$W" add -A >/dev/null 2>&1
+git -C "$W" -c user.name=t -c user.email=t@e commit -qm two >/dev/null 2>&1
+git -C "$W" push -q origin HEAD >/dev/null 2>&1
+capture env GRANDMA_HOME="$H10" GH_FAKE_ROOT="$GH2" GH_FAKE_LOGIN=mate "$GBIN" knit pull
+assert_rc 0 "pull with two shares runs"
+assert_contains "2 new share(s)" "it counts both"
+assert_contains "Read each on its own" "and offers them separately"
+n=$(printf '%s' "$LAST_OUT" | grep -c "review --apply")
+[ "$n" = "2" ] && ok "one review command per share, not one for the pile" \
+               || fail "expected 2 review commands, got $n"
+
+fake_gh_invitation "$GHROOT" 4242 testuser "testuser/grandma-knit-yard"   # restore shared state
 
 section "knit — a home that predates knit gets the ignore rule before ANY write"
 # The real case: a memory home created before knit shipped has no .knit line, and the very

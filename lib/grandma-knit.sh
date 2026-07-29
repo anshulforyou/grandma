@@ -571,8 +571,11 @@ write_proposal() {
 # ingest_dir <clonedir> <where> — write a proposal for each share in a pulled repo that is not
 # ours and that we have not ingested before (the ledger is keyed by content, so re-pulling an
 # unchanged share is a no-op and an updated one comes through again).
+# Appends the proposals it writes to INGESTED, so a pull can point at the share that just
+# arrived rather than at every pending proposal in the home. It must NOT be called through a
+# command substitution: that is a subshell, and the array would never reach the caller.
 ingest_dir() {
-  local d="$1" where="$2" me="$3" n=0 f peer sum out
+  local d="$1" where="$2" me="$3" f peer sum out
   for f in "$d"/shares/*.md; do
     [[ -f "$f" ]] || continue
     peer="$(basename "$f" .md)"
@@ -583,9 +586,9 @@ ingest_dir() {
     [[ -n "$out" ]] || continue
     note_ledger in "$peer" "$(payload_field "$f" project)" "$where" "knit:$sum"
     say "+ proposal from $peer: $(basename "$out")"
-    n=$((n + 1))
+    INGESTED+=("$out")
   done
-  printf '%s' "$n"
+  return 0
 }
 
 cmd_pull() {
@@ -613,8 +616,8 @@ cmd_pull() {
     out="$(write_proposal "$file" "$peer" "$file" "$as" || true)"
     [[ -n "$out" ]] || exit 1
     note_ledger in "$peer" "$(payload_field "$file" project)" "$file" "knit:$(cksum < "$file" | tr -d ' ')"
-    say "+ proposal: $out"
-    say "review it: grandma review --apply $(basename "$out")"
+    say "+ proposal: $(basename "$out")"
+    say "read it on its own:  grandma review --apply $(basename "$out")"
     exit 0
   fi
 
@@ -665,14 +668,15 @@ cmd_pull() {
              --jq ".[] | select(.name | startswith(\"$REPO_PREFIX\")) | .full_name" 2>/dev/null || true)
 
   # 3. refresh everything we already have, and ingest what is new
-  local total=0 d where got
+  local d where
+  INGESTED=()
   for d in "$KNIT"/in/*/; do
     [[ -d "$d/.git" ]] || continue
     where="$(basename "${d%/}" | tr '_' '/')"
     git_here "${d%/}" pull --ff-only --quiet >/dev/null 2>&1 || true
-    got="$(ingest_dir "${d%/}" "$where" "$me")"
-    total=$((total + ${got:-0}))
+    ingest_dir "${d%/}" "$where" "$me"
   done
+  local total=${#INGESTED[@]}
 
   # the cache drove the launch banner; a pull is what clears it
   : > "$ROOT/.knit-pending" 2>/dev/null || true
@@ -680,8 +684,28 @@ cmd_pull() {
 
   if [[ "$total" -eq 0 ]]; then
     say "nothing new to knit in."
+    return 0
+  fi
+
+  # Point at what just arrived, not at the whole proposal queue. Someone else's memory is
+  # exactly the thing you want to read on its own, and `grandma review` would bury it among
+  # your own pending distills.
+  if [[ ${#INGESTED[@]} -eq 1 ]]; then
+    local one; one="$(basename "${INGESTED[0]}")"
+    if [[ -t 0 ]] && ! dry; then
+      printf '  read it now? [Y/n] ' >&2
+      local ans; read -r ans
+      if [[ "${ans:-y}" =~ ^[Yy]?$ ]]; then
+        exec "$ENGINE/lib/grandma-review.sh" --apply "${INGESTED[0]}"
+      fi
+    fi
+    say "read it on its own:  grandma review --apply $one"
   else
-    say "$total new share(s) waiting as proposals — review them: grandma review"
+    say "$total new share(s). Read each on its own:"
+    local f
+    for f in ${INGESTED[@]+"${INGESTED[@]}"}; do
+      say "  grandma review --apply $(basename "$f")"
+    done
   fi
 }
 
