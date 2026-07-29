@@ -212,7 +212,10 @@ grandma knit install-agent       check for shares every 60s (opt-in)
   hooks (upstream issue), so the end-of-session distill only runs on Ctrl+D. Manual
   fallback always works: `grandma save <sweater>`.
 - Sweater names that collide with subcommands (`init`, `save`, `review`, `search`,
-  `ingest`, `watch`, `knit`, `test`, `doctor`, `update`, `version`, `help`) are reserved.
+  `ingest`, `watch`, `knit`, `test`, `doctor`, `completions`, `update`, `version`, `help`) are
+  reserved, as are the folders grandma owns in your memory home (`global`, `proposals`,
+  `watches`, `templates`). Grandma refuses those names when you knit a sweater rather than
+  letting you make one it could never load.
 - macOS is the daily-driven platform. Linux is CI-tested but younger: if something
   misbehaves, `grandma doctor` first, then an issue with its output.
 
