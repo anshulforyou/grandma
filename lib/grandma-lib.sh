@@ -245,7 +245,7 @@ scope_name_is_reserved() {
   q="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
   [[ -n "$q" ]] || return 0
   case "$q" in
-    init|save|review|search|ingest|watch|knit|test|doctor|completions|update|version|help) return 0 ;;
+    init|save|review|search|peek|ingest|watch|knit|test|doctor|completions|update|version|help) return 0 ;;
     global|proposals|watches|templates) return 0 ;;
   esac
   return 1

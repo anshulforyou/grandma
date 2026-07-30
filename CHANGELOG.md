@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `grandma peek` (v0, shadow mode): grades each finished assistant message against the memory the
+  sweater already loaded, and reports only what breaks a line you wrote — quoting the line. Two
+  checks: a message that says or does something against a stated rule, and a message that claims
+  work the session's tool calls do not show. **v0 renders nothing.** It writes every verdict to
+  `~/.grandma/.peek/<session>/log.jsonl` and shows nothing in-session, so it cannot say anything
+  wrong because it cannot say anything. `grandma peek` summarises the log. Design and rationale
+  in discussion #23; the log is what sets the thresholds before anything is allowed to speak.
 - Fixed: accepting the launch-time offer to review a previous session no longer hangs. It printed
   "opening review" and then waited forever, silently, on any memory home containing a directory
   with no markdown files in it. Review turns on `nullglob` before resolving the sweater, which

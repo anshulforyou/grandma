@@ -26,7 +26,7 @@ source "$ENGINE/lib/grandma-lib.sh"
 
 # First-word candidates that are NOT sweaters: the reserved subcommands (keep in sync with
 # bin/grandma). A sweater whose name collides with one of these is shadowed, as documented.
-SUBCOMMANDS="init save review search ingest watch knit test doctor completions update version help"
+SUBCOMMANDS="init save review search peek ingest watch knit test doctor completions update version help"
 WATCH_COMMANDS="start tick list status report finish notify-test install-agent"
 KNIT_COMMANDS="share pull list contacts install-agent uninstall-agent"
 
