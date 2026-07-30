@@ -269,12 +269,24 @@ cmd_grade() {
   # into the folder), so it is appended explicitly, as grandma-save.sh already does.
   local rules=""
   [[ -n "$scope" ]] && rules="$("$ENGINE/lib/assemble.sh" "$scope" 2>/dev/null || true)"
-  local pdir; pdir="$(jqr "$spec" '.project_dir // empty')"
+  # Resolve the project's folder HERE rather than in the hook: this runs off the critical path,
+  # and assemble.sh covers only global + sweater. The project CLAUDE.md holds the densest rules
+  # in the tree and reaches the session because the launcher cd's into the folder, so without
+  # this peek would grade against memory the session had but peek could not see.
+  local pdir=""
+  if [[ -n "$scope" && -n "$project" ]]; then
+    local sdir_p; sdir_p="$(resolve_scope_dir "$scope" 2>/dev/null || true)"
+    if [[ -n "$sdir_p" ]]; then
+      resolve_project "$sdir_p" "$project" 2>/dev/null || true
+      [[ "${RP_STATUS:-NONE}" == "OK" ]] && pdir="${RP_DIR:-}"
+    fi
+  fi
   if [[ -n "$pdir" && -f "$pdir/CLAUDE.md" ]]; then
     rules="$rules
 
-===== PROJECT CLAUDE.md ($project) =====
-$(cat "$pdir/CLAUDE.md" 2>/dev/null || true)"
+===== BEGIN $project/CLAUDE.md =====
+$(cat "$pdir/CLAUDE.md" 2>/dev/null || true)
+===== END $project/CLAUDE.md ====="
   fi
 
   local ledger="" lcount=0
@@ -311,16 +323,26 @@ Return JSON only, per your instructions."
   # cited_file AND cited_line is dropped before it can reach a log line or, in v1, a screen.
   # Doing it in the shell makes it deterministic and testable, and independent of the weak model
   # choosing to behave. Anything unparseable degrades to no findings.
-  local raw kept dropped
-  raw="$(printf '%s' "$out" | sed -n '/{/,$p' | jq -c '.findings // []' 2>/dev/null || echo '[]')"
+  #
+  # The fence strip is load-bearing, not cosmetic. Models routinely wrap JSON in a ```json
+  # fence; cutting from the first brace to the end leaves the CLOSING fence behind, jq then
+  # sees two inputs and prints two numbers, and "1\n0" reaching an arithmetic expansion is a
+  # FATAL error in bash — the child died there, silently, before it could log anything. Slurping
+  # and taking the first value tolerates the fence, trailing prose, and a stray second object.
+  local raw kept dropped n_raw n_kept
+  raw="$(printf '%s' "$out" | sed -e 's/```[a-zA-Z]*//g' -e '/^[[:space:]]*$/d' \
+         | sed -n '/{/,$p' | jq -s -c '(.[0].findings) // []' 2>/dev/null || echo '[]')"
   [[ -n "$raw" ]] || raw='[]'
   kept="$(printf '%s' "$raw" | jq -c '[ .[] | select(
             ((.cited_file // "") | test("\\S")) and ((.cited_line // "") | test("\\S")) ) ]' \
           2>/dev/null || echo '[]')"
   [[ -n "$kept" ]] || kept='[]'
-  dropped=$(( $(printf '%s' "$raw" | jq 'length' 2>/dev/null || echo 0) \
-            - $(printf '%s' "$kept" | jq 'length' 2>/dev/null || echo 0) ))
-  [[ "$dropped" -ge 0 ]] 2>/dev/null || dropped=0
+  # Counts go through head+tr before any arithmetic, so a multi-line or non-numeric jq result
+  # can never reach $(( )). Same reason file_mtime pipes through tr -cd '0-9'.
+  n_raw="$(printf '%s' "$raw"  | jq 'length' 2>/dev/null | head -n1 | tr -cd '0-9')"
+  n_kept="$(printf '%s' "$kept" | jq 'length' 2>/dev/null | head -n1 | tr -cd '0-9')"
+  dropped=$(( ${n_raw:-0} - ${n_kept:-0} ))
+  [[ "$dropped" -ge 0 ]] || dropped=0
 
   log_line "$d" "$tid" "$mid" "${#msg}" "${lcount:-0}" "${#rules}" "$ms" "$in_tok" "$out_tok" \
            "$kept" "$dropped" ""

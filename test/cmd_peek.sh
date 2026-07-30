@@ -93,6 +93,33 @@ capture env PATH="$FB:$PATH" GRANDMA_PEEK_SYNC=1 bash -c "printf '%s' '$(md_json
 assert_rc 0 "clean run exits 0"
 [ "$(last_log s-clean '.would_have_spoken')" = "false" ] && ok "silent on a clean message" || fail "spoke on a clean message"
 
+section "peek — a FENCED reply is parsed (what a real model actually returns)"
+# The shim used to hand back bare JSON, which no real model does. A ```json fence left the
+# closing fence in the slice, jq then printed one number per input, and "1\n0" reaching an
+# arithmetic expansion is FATAL in bash — the child died before logging, silently, and every
+# assertion here still passed. This case is why the suite missed it.
+FENCED='```json
+{"findings":[{"class":"1","cited_file":"global/preferences.md","cited_line":"pnpm only, never yarn","what":"says it will run yarn","suggestion":"Use pnpm, not yarn."}]}
+```'
+FB="$(fake_claude_json "$TMP/b5a" "$FENCED")"
+capture env PATH="$FB:$PATH" GRANDMA_PEEK_SYNC=1 bash -c "printf '%s' '$(md_json s-fenced true "I will run yarn install.")' | '$PK' display globex billing"
+assert_rc 0 "a fenced reply exits 0"
+assert_file "$(log_of s-fenced)" "a fenced reply still produces a log line"
+[ "$(last_log s-fenced '.findings | length')" = "1" ] && ok "the fence is stripped and the finding survives" || fail "fenced JSON was not parsed"
+[ "$(last_log s-fenced '.dropped_uncited')" = "0" ] && ok "the closing fence is not counted as a dropped finding" || fail "fence miscounted"
+
+section "peek — prose around the JSON does not break it"
+CHATTY='Here is my assessment.
+
+```json
+{"findings":[]}
+```
+Let me know if you need more.'
+FB="$(fake_claude_json "$TMP/b5b" "$CHATTY")"
+capture env PATH="$FB:$PATH" GRANDMA_PEEK_SYNC=1 bash -c "printf '%s' '$(md_json s-chatty true "Reading the file now.")' | '$PK' display globex"
+assert_rc 0 "a chatty reply exits 0"
+[ "$(last_log s-chatty '.would_have_spoken')" = "false" ] && ok "prose around the JSON degrades to silence, not a crash" || fail "chatty reply mishandled"
+
 section "peek — garbage from the model degrades to no findings"
 FB="$(fake_claude_json "$TMP/b5" "Execution error, not json at all")"
 capture env PATH="$FB:$PATH" GRANDMA_PEEK_SYNC=1 bash -c "printf '%s' '$(md_json s-garbage true "Some message text.")' | '$PK' display globex"
