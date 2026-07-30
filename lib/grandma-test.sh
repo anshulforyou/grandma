@@ -19,9 +19,10 @@ ASSEMBLE="$ENGINE/lib/assemble.sh"
 # scripts, and the generic prompts that run across all scopes.
 CORE=(lib/grandma-launch.sh lib/grandma-lib.sh lib/grandma-rehydrate.sh lib/grandma-session-end.sh \
       lib/grandma-save.sh lib/grandma-ingest.sh lib/grandma-review.sh lib/grandma-search.sh \
-      lib/grandma-update.sh lib/grandma-knit.sh lib/assemble.sh \
+      lib/grandma-update.sh lib/grandma-knit.sh lib/assemble.sh lib/grandma-peek.sh \
       prompts/distiller.md prompts/onboard.md prompts/ingest.md prompts/new-scope.md \
-      prompts/capture.md lib/grandma-watch.sh prompts/watch-digest.md prompts/watch-report.md)
+      prompts/capture.md lib/grandma-watch.sh prompts/watch-digest.md prompts/watch-report.md \
+      prompts/peek.md)
 
 fail=0
 pass() { printf '  \033[32mok\033[0m   %s\n' "$1"; }
