@@ -1,7 +1,32 @@
 #!/usr/bin/env bash
 # grandma integrity gate: block commits that fail the full test suite (structural
 # invariants + cold install + onboarding + per-command behavioral tests).
+
+# Resolve the repo BEFORE clearing the environment below, while git's own variables are
+# still set — inside a linked worktree, `--show-toplevel` needs them to answer correctly.
 root="$(git rev-parse --show-toplevel)"
+
+# Run the suite in a CLEAN git environment.
+#
+# Git exports GIT_DIR (and friends) to every hook so the hook can find the repo, and every
+# process the hook spawns inherits them. GIT_DIR is not a hint: when it is set, git ignores
+# the directory you are standing in and operates on GIT_DIR instead. The suite builds sandbox
+# memory homes and seeds each one with `cd $sandbox && git init && git add -A && git commit`,
+# so under the hook that ran against THIS repository — committing a test fixture's files onto
+# the branch being committed, once per fixture, silently.
+#
+# Two things went wrong every time someone followed CONTRIBUTING and enabled this hook:
+# the branch ref was overwritten by a chain of `fixture: seed memory home` commits (the work
+# survived, since no checkout ever ran, but `git reset` was needed to find it again), and the
+# gate could never pass, because smoke and onboard assert that `grandma init` created a repo
+# in the sandbox and it had gone to the real one. `./test/run.sh` passed by hand and failed
+# under `git commit`, which reads as "my change broke the tests".
+#
+# Clearing them makes every `git` inside the suite resolve from its own working directory,
+# which is what those tests were written against. Invariant 15 pins this.
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_PREFIX GIT_OBJECT_DIRECTORY \
+      GIT_COMMON_DIR GIT_NAMESPACE GIT_ALTERNATE_OBJECT_DIRECTORIES
+
 if [[ -x "$root/test/run.sh" ]]; then
   if ! "$root/test/run.sh" >/tmp/grandma-test.out 2>&1; then
     echo "✗ grandma test suite FAILED — commit blocked:" >&2

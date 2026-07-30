@@ -148,6 +148,30 @@ install_precompact_hook() {
   return 0
 }
 
+# Ensure a grandma-launched project has the three peek hooks, so each finished assistant message
+# is graded against the memory this sweater already loaded. Idempotent. Skip with GRANDMA_NO_HOOK
+# or GRANDMA_NO_PEEK.
+#
+# MessageDisplay does the grading and the other two only feed it a ledger of what actually ran.
+# The timeouts differ for a reason: MessageDisplay's default is 10s, the tightest of any event,
+# because Claude Code holds each batch of streaming text until the hook returns. peek returns
+# immediately on every batch except the last, and in v0 even the last one only hands the work to
+# a detached child, so it never spends that budget. It is raised to 15 anyway for the v1 path,
+# where the call becomes synchronous.
+install_peek_hooks() {
+  local dir="$1" scope="$2" project="$3"
+  [[ "${GRANDMA_NO_HOOK:-0}" == "1" || "${GRANDMA_NO_PEEK:-0}" == "1" ]] && return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local script="$ENGINE/lib/grandma-peek.sh" cfg="$dir/.claude/settings.local.json"
+  install_hook "$cfg" MessageDisplay "" \
+    "$script" "$(hook_cmd "$script" display "$scope" "$project")" 15 0 && GRANDMA_PEEK_INSTALLED=1
+  install_hook "$cfg" PostToolBatch "" \
+    "$script" "$(hook_cmd "$script" batch "$scope")" 10 0 && GRANDMA_PEEK_INSTALLED=1
+  install_hook "$cfg" PostToolUseFailure "" \
+    "$script" "$(hook_cmd "$script" fail "$scope")" 10 0 && GRANDMA_PEEK_INSTALLED=1
+  return 0
+}
+
 # Common parent folder of a scope's registered projects (for onboarding new projects).
 scope_working_root() {
   local reg="$1/projects.md"
@@ -440,6 +464,11 @@ if [[ "${GRANDMA_DRY_RUN:-0}" == "1" ]]; then
         else
           echo "checkpoint:   would ensure PreCompact hook (session working-state saved before compaction, re-injected after)" >&2
         fi
+        if [[ "${GRANDMA_NO_PEEK:-0}" == "1" ]]; then
+          echo "peek:         skipped (GRANDMA_NO_PEEK=1)" >&2
+        else
+          echo "peek:         would ensure MessageDisplay + PostToolBatch + PostToolUseFailure hooks (v0 shadow mode: grades each message, renders nothing)" >&2
+        fi
       fi
     fi
   fi
@@ -463,7 +492,8 @@ if [[ -n "$LAUNCH_DIR" ]]; then
   install_rehydrate_hook "$LAUNCH_DIR" "$SCOPE"
   install_session_end_hook "$LAUNCH_DIR" "$SCOPE" "$RP_NAME"
   install_precompact_hook "$LAUNCH_DIR" "$SCOPE" "$RP_NAME"
-  [[ "${GRANDMA_HOOK_INSTALLED:-0}" == "1" || "${GRANDMA_AUTOSAVE_INSTALLED:-0}" == "1" || "${GRANDMA_CHECKPOINT_INSTALLED:-0}" == "1" ]] && \
+  install_peek_hooks "$LAUNCH_DIR" "$SCOPE" "$RP_NAME"
+  [[ "${GRANDMA_HOOK_INSTALLED:-0}" == "1" || "${GRANDMA_AUTOSAVE_INSTALLED:-0}" == "1" || "${GRANDMA_CHECKPOINT_INSTALLED:-0}" == "1" || "${GRANDMA_PEEK_INSTALLED:-0}" == "1" ]] && \
     printf '  + installed grandma hooks (%s/.claude/settings.local.json)\n' "$RP_NAME" >&2
 fi
 

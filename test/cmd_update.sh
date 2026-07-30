@@ -41,7 +41,13 @@ capture env GRANDMA_DRY_RUN=1 "$GBIN" update
 assert_rc 0 "dry-run update runs and survives set -u"
 assert_contains "would run" "prints the plan instead of pulling"
 assert_contains "fetch --prune origin" "names the fetch it would do (pruned: a stale origin/HEAD is how update silently went nowhere)"
-assert_contains "fast-forward onto origin/" "and the branch it would land on"
+# The tail of that line is environment-dependent, so assert only the part that is not.
+# The dry run does not fetch, so it reports what the local cache already knows: `origin/<branch>`
+# when origin/HEAD resolves, and "origin's default branch" when it does not — deliberately, rather
+# than naming a default the real run might disagree with. A GitHub Actions PR checkout is the
+# second case (shallow, detached at refs/pull/N/merge, no origin/HEAD), while a push to master is
+# the first, so asserting the slash passed on master and failed on every pull request.
+assert_contains "fast-forward onto origin" "and the branch it would land on"
 assert_contains "on branch" "says which branch the engine is on now"
 
 section "update — an unknown option fails with usage, before any git work"

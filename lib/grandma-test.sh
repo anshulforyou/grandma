@@ -19,9 +19,10 @@ ASSEMBLE="$ENGINE/lib/assemble.sh"
 # scripts, and the generic prompts that run across all scopes.
 CORE=(lib/grandma-launch.sh lib/grandma-lib.sh lib/grandma-rehydrate.sh lib/grandma-session-end.sh \
       lib/grandma-save.sh lib/grandma-ingest.sh lib/grandma-review.sh lib/grandma-search.sh \
-      lib/grandma-update.sh lib/grandma-knit.sh lib/assemble.sh \
+      lib/grandma-update.sh lib/grandma-knit.sh lib/assemble.sh lib/grandma-peek.sh \
       prompts/distiller.md prompts/onboard.md prompts/ingest.md prompts/new-scope.md \
-      prompts/capture.md lib/grandma-watch.sh prompts/watch-digest.md prompts/watch-report.md)
+      prompts/capture.md lib/grandma-watch.sh prompts/watch-digest.md prompts/watch-report.md \
+      prompts/peek.md)
 
 fail=0
 pass() { printf '  \033[32mok\033[0m   %s\n' "$1"; }
@@ -265,6 +266,41 @@ for f in "$ENGINE"/lib/*.sh "$ENGINE/bin/grandma" "$ENGINE/hooks/pre-commit" "$E
   done < <(grep -nE 'grep' "$f" 2>/dev/null | grep -E '\$[^[:space:]]*/"?\*' || true)
 done
 [[ "$gs_ok" == "1" ]] && pass "every grep glob operand is backed by /dev/null (cannot fall back to stdin)"
+
+# ---- 17. The gate runs the suite in a clean git environment ----
+# Git exports GIT_DIR to every hook, and every process the hook spawns inherits it. GIT_DIR is
+# not a hint: with it set, git ignores the directory you are standing in. The suite seeds sandbox
+# memory homes with `cd $sandbox && git init && git add -A && git commit`, so under the hook those
+# ran against THIS repository — a chain of `fixture: seed memory home` commits landing on the
+# branch being committed, once per fixture, silently. It also meant the gate could never pass,
+# because smoke and onboard assert a repo in the sandbox that had gone to the real one: the suite
+# was green by hand and red under `git commit`, which reads as "my change broke the tests".
+# Nothing in the suite can catch this, because the suite is what gets sabotaged — so the check is
+# on the hook itself. GIT_DIR alone would fix today's symptom; the rest are unset because they
+# redirect git the same way and a future test would meet them the same way.
+echo "== 17. pre-commit gate runs the suite in a clean git environment =="
+pc="$ENGINE/hooks/pre-commit"
+if [[ ! -f "$pc" ]]; then
+  skip "no hooks/pre-commit in this checkout"
+else
+  pc_ok=1
+  pc_code="$(grep -vE '^[[:space:]]*#' "$pc")"
+  for v in GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_OBJECT_DIRECTORY; do
+    printf '%s\n' "$pc_code" | grep -qE "^[[:space:]]*unset .*\b$v\b|\\\\$" \
+      || { bad "hooks/pre-commit does not unset $v (the suite's fixtures would commit to this repo)"; pc_ok=0; }
+  done
+  printf '%s\n' "$pc_code" | grep -q 'unset GIT_DIR' \
+    || { bad "hooks/pre-commit has no 'unset GIT_DIR' line at all"; pc_ok=0; }
+  # The repo must be resolved BEFORE the unset: inside a linked worktree, `git rev-parse
+  # --show-toplevel` needs git's own variables to answer correctly.
+  if printf '%s\n' "$pc_code" | grep -q 'show-toplevel'; then
+    r_ln="$(printf '%s\n' "$pc_code" | grep -n 'show-toplevel' | head -n1 | cut -d: -f1)"
+    u_ln="$(printf '%s\n' "$pc_code" | grep -n 'unset GIT_DIR' | head -n1 | cut -d: -f1)"
+    [[ -n "$r_ln" && -n "$u_ln" && "$r_ln" -lt "$u_ln" ]] \
+      || { bad "hooks/pre-commit unsets GIT_DIR before resolving the repo root (breaks in a worktree)"; pc_ok=0; }
+  fi
+  [[ "$pc_ok" == "1" ]] && pass "the gate cannot commit its own fixtures to this repo"
+fi
 
 echo
 if [[ "$fail" == "0" ]]; then echo "grandma-test: ALL PASS"; else echo "grandma-test: FAILURES ABOVE"; fi
