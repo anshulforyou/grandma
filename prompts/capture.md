@@ -23,7 +23,10 @@ three hours of correct work that produced no new facts.
    must be followed, a flag that must be set).
 6. preference — the user revealed how they like things done, even offhand.
 7. thread-state — where an ongoing effort stands (what is done, what is pending). This
-   decays, so it goes in the sweater's log, not facts.
+   decays, so it goes in the sweater's dated log at `<sweater>/log/<YYYY-MM-DD>.md`, not
+   facts. Never create a flat `<sweater>/log.md`. Every `.md` at a sweater's root loads
+   into every session from now on, while `log/` is only read on demand, so an
+   append-only file at the root grows the bundle forever.
 
 ## Never capture (the anti-list)
 - The work product itself (code, drafts, deliverables — they live in the project).

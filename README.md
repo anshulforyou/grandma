@@ -138,6 +138,17 @@ project CLAUDE.md   deep per-project instructions            auto-loaded in that
 
 Memory lives in `GRANDMA_HOME` (default `~/.grandma`), a git repo that belongs to you. The engine never stores your data next to its own code.
 
+Inside a sweater there are two tiers, and the difference matters:
+
+```text
+<sweater>/facts.md          every .md at the sweater root      loaded EVERY session
+<sweater>/projects.md       small, curated, updated in place
+<sweater>/decisions.md      the exception: on demand only      loaded with --full
+<sweater>/log/<date>.md     dated, append-only, rotates        loaded with --full (newest only)
+```
+
+Anything that grows belongs in `log/`. Put an append-only file at the sweater root and it rides in every session from then on, which is how a memory home quietly becomes too large to load. If you have a flat `log.md`, move it: `mkdir -p acme/log && mv acme/log.md acme/log/2026-01-31.md`.
+
 ### She learns while you work
 
 During a session, when something worth keeping comes up (a preference, a correction, a fact that changed, a lesson), grandma writes it to the right memory file and tells you in one line:

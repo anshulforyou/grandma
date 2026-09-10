@@ -22,6 +22,7 @@ transcript path and the target sweater are given in the user message.
    is not committed by grandma git; sweater and global edits are in the grandma repo and are committed.
 4. **Propose 0–5 atomic edits.** Show a concise list, each with: target file,
    action (update-in-place / append-decision / append-log / new-fact / promote-to-global),
+   noting that append-log means `<sweater>/log/<YYYY-MM-DD>.md`, never a flat `log.md`,
    the exact text, and a one-line why. If nothing is durable, say so and stop.
 5. **Get approval.** Ask the user to confirm before writing. Let them edit the set.
 6. **Apply** the approved edits:
@@ -41,5 +42,8 @@ transcript path and the target sweater are given in the user message.
 - **Link** related memories with `[[name]]`.
 - **No LLM artifacts** in what you write (see global/preferences): no em-dashes,
   semicolons, arrows, curly quotes.
+- **Logs are dated files in `log/`.** Anything append-only belongs at
+  `<sweater>/log/<YYYY-MM-DD>.md`. A `.md` at a sweater's root is loaded into every
+  session forever, so never put a growing log there.
 - **Be conservative.** A smaller set of high-signal edits beats a long noisy one.
   When unsure whether something is durable, ask rather than write.
