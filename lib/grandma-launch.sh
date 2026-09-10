@@ -451,7 +451,13 @@ if [[ "${GRANDMA_DRY_RUN:-0}" == "1" ]]; then
   fi
   echo "capture:      doctrine loaded (prompts/capture.md) · grandma repo writable via --add-dir" >&2
   echo "banner:       $BANNER" >&2
-  echo "would launch: (cd ${LAUNCH_DIR:-.} && claude --name grandma:$SCOPE${RP_NAME:+/$RP_NAME} ${PASSTHRU[*]:-} --append-system-prompt <bundle> <init>)" >&2
+  if [[ "${GRANDMA_NO_PROMPT_FILE:-0}" != "1" ]] && claude_accepts_prompt_file; then
+    _tp="--append-system-prompt-file <tmpfile>"
+  else
+    _tp="--append-system-prompt <bundle>"
+    echo "transport:    argv (this claude has no --append-system-prompt-file); limit $(argv_prompt_limit) bytes, bundle ${#SYSPROMPT}" >&2
+  fi
+  echo "would launch: (cd ${LAUNCH_DIR:-.} && claude --name grandma:$SCOPE${RP_NAME:+/$RP_NAME} ${PASSTHRU[*]:-} $_tp <init>)" >&2
   echo "--- init prompt ---" >&2
   printf '%s\n' "$INIT" >&2
   echo "--- sysprompt: ${#SYSPROMPT} chars ---" >&2
@@ -502,6 +508,18 @@ if [[ "${dirty:-0}" -gt 0 ]]; then
   printf '  🧶 memory has %s uncommitted change(s) — review: git -C %s diff\n' "$dirty" "$ROOT" >&2
 fi
 
+# Backpressure on the shape that quietly kills a memory home. Every .md at a sweater root is
+# loaded into EVERY session, so an append-only log.md there grows the bundle without bound
+# until the launch itself fails. The dated log under log/ is the tier that rotates and is read
+# only on demand. Warn once, name the fix (silence with GRANDMA_NO_SIZE_WARN=1).
+if [[ "${GRANDMA_NO_SIZE_WARN:-0}" != "1" ]]; then
+  _sd="$(resolve_scope_dir "$SCOPE" 2>/dev/null || true)"
+  if [[ -n "$_sd" && -f "$_sd/log.md" ]]; then
+    printf '  🧶 %s/log.md loads every session and only grows — move it into the dated log:\n' "$SCOPE" >&2
+    printf '     mkdir -p %s/log && mv %s/log.md %s/log/%s.md\n' "$_sd" "$_sd" "$_sd" "$(date +%Y-%m-%d)" >&2
+  fi
+fi
+
 # Fingerprint what is dirty NOW, so post_session can tell this session's captures from
 # older, already-reviewed diffs. Without this, every uncommitted file re-triggered the
 # end-of-session review prompt on every launch until it was committed.
@@ -537,9 +555,32 @@ export GRANDMA_DEFER_DISTILL=1
 distilled=0
 # Abrupt exit (window closed / terminated): capture the session in the background so it is
 # never lost. Clean exit: disarm, then post_session distills + reviews in the foreground.
-trap on_hangup HUP TERM
+# The bundle goes to claude by FILE where the flag exists, so memory size is never bounded by
+# an argv limit. Older builds fall back to argv, which is where the kernel caps bite, so that
+# path refuses early with an explanation rather than letting the shell say "Argument list too
+# long" seconds after the banner claimed memory was loaded.
+SYSPROMPT_FILE=""
+if [[ "${GRANDMA_NO_PROMPT_FILE:-0}" != "1" ]] && claude_accepts_prompt_file; then
+  SYSPROMPT_FILE="$(write_sysprompt_file "$SYSPROMPT")" || SYSPROMPT_FILE=""
+fi
+if [[ -z "$SYSPROMPT_FILE" ]]; then
+  _limit="$(argv_prompt_limit)"
+  if [[ "${#SYSPROMPT}" -gt "$_limit" ]]; then
+    oversized_bundle_error "${#SYSPROMPT}" "$_limit" "$SCOPE" "$ROOT"
+    exit 1
+  fi
+fi
+# The temp file carries the whole memory bundle, so remove it however we leave.
+cleanup_sysprompt() { [[ -n "${SYSPROMPT_FILE:-}" ]] && rm -f "$SYSPROMPT_FILE"; SYSPROMPT_FILE=""; }
+
+trap 'cleanup_sysprompt; on_hangup' HUP TERM
 CLAUDE_RC=0
-claude --name "grandma:$SCOPE${RP_NAME:+/$RP_NAME}" --add-dir "$ROOT" ${PASSTHRU[@]+"${PASSTHRU[@]}"} --append-system-prompt "$SYSPROMPT" "$INIT" || CLAUDE_RC=$?
+if [[ -n "$SYSPROMPT_FILE" ]]; then
+  claude --name "grandma:$SCOPE${RP_NAME:+/$RP_NAME}" --add-dir "$ROOT" ${PASSTHRU[@]+"${PASSTHRU[@]}"} --append-system-prompt-file "$SYSPROMPT_FILE" "$INIT" || CLAUDE_RC=$?
+else
+  claude --name "grandma:$SCOPE${RP_NAME:+/$RP_NAME}" --add-dir "$ROOT" ${PASSTHRU[@]+"${PASSTHRU[@]}"} --append-system-prompt "$SYSPROMPT" "$INIT" || CLAUDE_RC=$?
+fi
 trap - HUP TERM
+cleanup_sysprompt
 post_session
 exit "$CLAUDE_RC"

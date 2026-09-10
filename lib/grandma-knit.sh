@@ -817,36 +817,8 @@ cmd_contacts() {
   esac
 }
 
-# run_bounded <secs> <cmd...> — run a command with a wall-clock cap, print its stdout. The
-# poll runs detached at launch time, so a network stall must never leave a process hanging
-# around forever. Pure bash: no timeout(1) on macOS, no new dependency.
-# Completion is detected by a marker file the child writes, NOT by `kill -0`: a finished
-# child can sit as a zombie until it is reaped, and kill -0 reports a zombie as alive.
-run_bounded() {
-  local secs="$1"; shift
-  local out finished pid i=0 rc=0
-  out="$(mktemp "${TMPDIR:-/tmp}/grandma-knit-out-XXXXXX")" || return 1
-  finished="$out.rc"
-  ( "$@" > "$out" 2>/dev/null; printf '%s' "$?" > "$finished" ) &
-  pid=$!
-  while [[ "$i" -lt $((secs * 10)) ]]; do
-    [[ -s "$finished" ]] && break
-    sleep 0.1; i=$((i + 1))
-  done
-  if [[ -s "$finished" ]]; then
-    rc="$(cat "$finished")"
-  else
-    # Kill the CHILDREN first. The command runs inside a backgrounded subshell, so signalling
-    # only $pid reaps the subshell and leaves the actual network call running long past the
-    # bound it was given. A negative pid does not help here either: the subshell inherits its
-    # parent's process group rather than leading one of its own.
-    pkill -TERM -P "$pid" 2>/dev/null || true
-    kill -TERM "$pid" 2>/dev/null; rc=124
-  fi
-  wait "$pid" 2>/dev/null || true
-  cat "$out"; rm -f "$out" "$finished"
-  return "${rc:-1}"
-}
+# run_bounded now lives in grandma-lib.sh: the launch-time capability probe needs the same
+# guarantee that an external command can never hang the CLI.
 
 # cmd_poll — refresh the pending-invitation cache that the launch banner reads. Runs detached
 # and always exits 0: no network, no gh, no GitHub at all is a normal state, not an error.

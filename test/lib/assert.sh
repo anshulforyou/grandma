@@ -90,7 +90,13 @@ make_fake_claude() {
   mkdir -p "$dir"
   cat > "$dir/claude" <<SHIM
 #!/usr/bin/env bash
-case "\${1:-}" in --version|-v) echo "0.0.0 (fake claude)"; exit 0 ;; esac
+case "\${1:-}" in
+  --version|-v) echo "0.0.0 (fake claude)"; exit 0 ;;
+  # Real claude answers --help, and the launcher probes it for --append-system-prompt-file.
+  # A shim that stayed silent here would send every launch down the probe-timeout path.
+  # Set FAKE_CLAUDE_NO_PROMPT_FILE=1 to impersonate a build without the flag.
+  --help) [ "\${FAKE_CLAUDE_NO_PROMPT_FILE:-0}" = 1 ] || echo "  --append-system-prompt[-file] <prompt>"; exit 0 ;;
+esac
 if [ "\${1:-}" = "-p" ]; then
   echo "FAKECLAUDE-PROPOSAL"
   echo "target: globex/facts.md | action: append | text: fake learning"

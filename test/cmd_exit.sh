@@ -31,7 +31,9 @@ seed_claude_project "$HOME" "$munged" "sess-exit" >/dev/null
 SHIM="$TMP/bin"; mkdir -p "$SHIM"; LIVE="$TMP/live"
 cat > "$SHIM/claude" <<EOF
 #!/usr/bin/env bash
-case "\${1:-}" in --version|-v) echo 0.0.0; exit 0 ;; esac
+case "\${1:-}" in --version|-v) echo 0.0.0; exit 0 ;; \
+  --help) echo "  --append-system-prompt[-file] <prompt>"; exit 0 ;;
+esac
 if [ "\${1:-}" = "-p" ]; then echo "FAKECLAUDE-PROPOSAL"; exit 0; fi
 printf -- '- captured mid-session\n' >> "$GRANDMA_HOME/globex/facts.md"
 : > "$LIVE"
