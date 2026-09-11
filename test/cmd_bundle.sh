@@ -115,6 +115,49 @@ fi
 pkill -f 'sleep 337' 2>/dev/null || true
 
 # ---------------------------------------------------------------------------------------
+section "the bundle file does not survive an interrupted session"
+# HUP and TERM are trapped, but Ctrl+C is not, and without an EXIT trap the file holding the
+# user's whole memory was left in the temp dir on every interrupted session.
+INTBIN="$TMP/intbin"; mkdir -p "$INTBIN"
+cat > "$INTBIN/claude" <<'INTEOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version|-v) echo "0.0.0"; exit 0 ;;
+  --help) echo "  --append-system-prompt[-file] <prompt>"; exit 0 ;;
+esac
+exec sleep 331
+INTEOF
+chmod +x "$INTBIN/claude"
+before_n=$(ls "${TMPDIR:-/tmp}"/grandma-sysprompt.* 2>/dev/null | wc -l | tr -d ' ')
+set -m
+( PATH="$INTBIN:$PATH" exec "$GBIN" globex >/dev/null 2>&1 ) & ipg=$!
+if wait_until 15 pgrep -f 'sleep 331'; then
+  during_n=$(ls "${TMPDIR:-/tmp}"/grandma-sysprompt.* 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$during_n" -gt "$before_n" ]; then
+    ok "the bundle file exists while the session runs"
+  else
+    fail "no bundle file was created, so this test proves nothing"
+  fi
+  kill -s INT -- -"$ipg" 2>/dev/null || true
+  pkill -f 'sleep 331' 2>/dev/null || true
+  cleaned=0
+  for _ in $(seq 1 40); do
+    [ "$(ls "${TMPDIR:-/tmp}"/grandma-sysprompt.* 2>/dev/null | wc -l | tr -d ' ')" -le "$before_n" ] && { cleaned=1; break; }
+    sleep 0.25
+  done
+  if [ "$cleaned" = 1 ]; then
+    ok "Ctrl+C leaves no copy of the memory bundle behind"
+  else
+    fail "an interrupted session left the bundle file in ${TMPDIR:-/tmp}"
+    rm -f "${TMPDIR:-/tmp}"/grandma-sysprompt.*
+  fi
+else
+  skip "session did not go live in this env — interrupt cleanup not exercised"
+  pkill -f 'sleep 331' 2>/dev/null || true
+fi
+set +m
+
+# ---------------------------------------------------------------------------------------
 section "tier boundary: sweater-root files load every session, log/ does not"
 capture "$ENGINE/lib/assemble.sh" globex
 assert_contains "globex/facts.md" "a .md at the sweater root is always loaded"

@@ -513,10 +513,10 @@ fi
 # until the launch itself fails. The dated log under log/ is the tier that rotates and is read
 # only on demand. Warn once, name the fix (silence with GRANDMA_NO_SIZE_WARN=1).
 if [[ "${GRANDMA_NO_SIZE_WARN:-0}" != "1" ]]; then
-  _sd="$(resolve_scope_dir "$SCOPE" 2>/dev/null || true)"
-  if [[ -n "$_sd" && -f "$_sd/log.md" ]]; then
+  _scope_dir="$(resolve_scope_dir "$SCOPE" 2>/dev/null || true)"   # not _sd: the watch loop below uses that
+  if [[ -n "$_scope_dir" && -f "$_scope_dir/log.md" ]]; then
     printf '  🧶 %s/log.md loads every session and only grows — move it into the dated log:\n' "$SCOPE" >&2
-    printf '     mkdir -p %s/log && mv %s/log.md %s/log/%s.md\n' "$_sd" "$_sd" "$_sd" "$(date +%Y-%m-%d)" >&2
+    printf '     mkdir -p %s/log && mv %s/log.md %s/log/%s.md\n' "$_scope_dir" "$_scope_dir" "$_scope_dir" "$(date +%Y-%m-%d)" >&2
   fi
 fi
 
@@ -570,8 +570,17 @@ if [[ -z "$SYSPROMPT_FILE" ]]; then
     exit 1
   fi
 fi
-# The temp file carries the whole memory bundle, so remove it however we leave.
-cleanup_sysprompt() { [[ -n "${SYSPROMPT_FILE:-}" ]] && rm -f "$SYSPROMPT_FILE"; SYSPROMPT_FILE=""; }
+# The temp file holds the whole memory bundle, so it must not survive us. An EXIT trap is what
+# makes that true on EVERY path: HUP and TERM are handled below, but Ctrl+C is not trapped at
+# all, and without this the file was left behind on every interrupted session. EXIT fires for
+# an untrapped SIGINT too, and it does not change what any signal MEANS, which a trap on INT
+# would (Ctrl+C would start a background distill).
+cleanup_sysprompt() {
+  if [[ -n "${SYSPROMPT_FILE:-}" ]]; then rm -f "$SYSPROMPT_FILE"; fi
+  SYSPROMPT_FILE=""
+  return 0
+}
+trap cleanup_sysprompt EXIT
 
 trap 'cleanup_sysprompt; on_hangup' HUP TERM
 CLAUDE_RC=0

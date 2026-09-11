@@ -484,7 +484,10 @@ notify_user() {
 # The memory bundle used to ride to the CLI as ONE argv entry. Two different kernel limits
 # make that fail, and neither is about how much memory is reasonable to load:
 #   Linux  MAX_ARG_STRLEN caps a SINGLE argument at 131072 bytes (PAGE_SIZE * 32). It is
-#          hardcoded since 2.6.23, unrelated to ARG_MAX, and cannot be raised.
+#          hardcoded since 2.6.23, unrelated to ARG_MAX, and cannot be raised. The kernel
+#          measures the string INCLUDING its terminator, so the largest prompt that actually
+#          fits is 131071. Reporting 131072 would let a prompt of exactly that size through
+#          the check and straight into the E2BIG it was meant to prevent.
 #   BSD    no per-argument cap, but argv plus envp together must fit ARG_MAX.
 # So a home that is merely large stops launching, with the shell reporting "Argument list too
 # long" after grandma has already said memory loaded. Prefer the file flag; fall back to argv
@@ -494,7 +497,7 @@ notify_user() {
 argv_prompt_limit() {
   local am envb
   case "$(uname -s)" in
-    Linux) echo 131072 ;;
+    Linux) echo 131071 ;;
     *)
       am="$(getconf ARG_MAX 2>/dev/null || echo 262144)"
       envb="$(env 2>/dev/null | wc -c | tr -d ' ')"
