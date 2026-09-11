@@ -109,8 +109,13 @@ cmd_init() {
       local SYS; SYS="$(cat "$ENGINE/prompts/init-interview.md")"
       cd "$ROOT" || exit 1
       grandma_splash "grandma"
-      exec claude --name "grandma:init" --append-system-prompt "$SYS" \
-        "Introduce yourself, explain what a sweater is, interview me, and fill in my identity and preferences per your instructions."
+      prepare_sysprompt "$SYS" "" "$ROOT" || exit 1
+      trap cleanup_sysprompt EXIT
+      local _rc=0
+      claude --name "grandma:init" "${SYSPROMPT_ARGS[@]}" \
+        "Introduce yourself, explain what a sweater is, interview me, and fill in my identity and preferences per your instructions." || _rc=$?
+      cleanup_sysprompt
+      exit "$_rc"
     fi
   fi
 

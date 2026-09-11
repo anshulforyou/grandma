@@ -41,7 +41,11 @@ capture env GRANDMA_DRY_RUN=1 "$GBIN" update
 assert_rc 0 "dry-run update runs and survives set -u"
 assert_contains "would run" "prints the plan instead of pulling"
 assert_contains "fetch --prune origin" "names the fetch it would do (pruned: a stale origin/HEAD is how update silently went nowhere)"
-assert_contains "fast-forward onto origin/" "and the branch it would land on"
+# "onto origin/master" when remote branch refs exist, "onto origin's default branch" when they
+# do not. A pull request checkout fetches only the merge ref, so no origin/<branch> ref is
+# present and the second form is the correct output. Asserting the first made every PR fail CI
+# while direct pushes to master passed. Match the part that is true either way.
+assert_contains "fast-forward onto origin" "and the branch it would land on"
 assert_contains "on branch" "says which branch the engine is on now"
 
 section "update — an unknown option fails with usage, before any git work"

@@ -88,7 +88,9 @@ fi
 # Run the checkpoint SYNCHRONOUSLY (compaction waits for it, so the note is ready before the
 # SessionStart(compact) rehydrate fires). From the grandma repo (a neutral cwd with no
 # PreCompact hook of its own) and with the recursion guard set on the child.
-out="$( cd "$ROOT" && GRANDMA_DISTILLING=1 claude -p "$PROMPT" --model "$MODEL" --append-system-prompt "$SYS" 2>/dev/null )" || out=""
+prepare_sysprompt "$SYS" "" "$ROOT" || SYSPROMPT_ARGS=()
+out="$( cd "$ROOT" && GRANDMA_DISTILLING=1 claude -p "$PROMPT" --model "$MODEL" ${SYSPROMPT_ARGS[@]+"${SYSPROMPT_ARGS[@]}"} 2>/dev/null )" || out=""
+cleanup_sysprompt
 rm -f "$readable"
 : > "$CDIR/.run.$(date +%s).$$" 2>/dev/null || true   # cost-cap marker: one per model call
 

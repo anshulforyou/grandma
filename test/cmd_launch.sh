@@ -95,7 +95,9 @@ printf -- '- stale edit, untouched this session\n' >> "$GRANDMA_HOME/globex/deci
 SHIM_C="$TMP/bin3c"; mkdir -p "$SHIM_C"
 cat > "$SHIM_C/claude" <<EOF
 #!/usr/bin/env bash
-case "\${1:-}" in --version|-v) echo "0.0.0 (fake claude)"; exit 0 ;; esac
+case "\${1:-}" in --version|-v) echo "0.0.0 (fake claude)"; exit 0 ;; \
+  --help) echo "  --append-system-prompt[-file] <prompt>"; exit 0 ;;
+esac
 [ "\${1:-}" = "-p" ] && exit 0
 printf -- '- captured mid-session\n' >> "$GRANDMA_HOME/globex/facts.md"
 exit 0

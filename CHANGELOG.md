@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- Fixed: a large memory home could not launch at all. The bundle was handed to the CLI as a single
+  command-line argument, and two different kernel limits sit on that, neither having anything to do
+  with how much memory is reasonable to load. Linux caps one argument at 128 KB, hardcoded and
+  unrelated to `ARG_MAX`, so a sweater a little over that size broke there while working fine on a
+  Mac. macOS caps the whole command line at 1 MB. Either way grandma printed the splash, announced
+  that memory had loaded, said it was launching, and then the shell reported "Argument list too
+  long" and quit. One reported home hit this at 1,040,331 bytes. The bundle now travels as a file
+  via `--append-system-prompt-file`, so its size is bounded by what you want to load and nothing
+  else. The file is created private (mode 600) and removed when the session ends, including on a
+  closed window. On an older CLI without that flag grandma falls back to the command line, checks
+  the size against the real limit for the platform first, and if it will not fit it says so in its
+  own words and names the file to shrink instead of leaving you with the shell's error. Every path
+  that carries memory moved across, not just the one that launches a session: onboarding a new
+  project, the distill that runs after every session, review, ingest, watch, the compaction
+  checkpoint, the first-run interview and knitting a new sweater. The distill mattered most of the
+  three, because it assembles memory in full, so it broke before a launch did, and it failed almost
+  silently with its error discarded and the automatic run detached.
+- Fixed: the capture doctrine told grandma that a running note belongs in "the sweater's log"
+  without saying where that is, so notes were written to `<sweater>/log.md`. Every markdown file at
+  a sweater's root is loaded into every session, while `log/<date>.md` is read only on demand, so an
+  append-only file at the root grew the bundle on every launch until launching stopped working. That
+  is what produced the oversized home above. The doctrine and the distiller now name the path, the
+  README and architecture notes explain the two tiers, and a launch that finds a flat `log.md` says
+  which file is doing it and prints the one command that moves it.
+
 - Fixed: accepting the launch-time offer to review a previous session no longer hangs. It printed
   "opening review" and then waited forever, silently, on any memory home containing a directory
   with no markdown files in it. Review turns on `nullglob` before resolving the sweater, which

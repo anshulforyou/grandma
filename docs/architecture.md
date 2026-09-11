@@ -24,6 +24,11 @@ memory files, which load only for their own sweater.
 1. `assemble` builds the bundle: `global/*.md` plus `acme/*.md` (decisions and logs are
    lazy, added with `--full`). Typical bundle: 1.5k to 4k tokens. A manifest prints so
    you see exactly what loaded and what it costs.
+   The tier boundary is the whole reason a bundle stays small: every `.md` at a sweater's
+   root is loaded on every launch, while `decisions.md` and `log/<date>.md` are not, and
+   only the newest dated log is added even under `--full`. So append-only content must
+   live in `log/`. A flat `<sweater>/log.md` lands in the always-loaded tier and grows the
+   bundle without bound, which is a real failure users have hit.
 2. The project resolver fuzzy-matches `billing` against `acme/projects.md`, finds the
    folder, and the session launches inside it so the project CLAUDE.md auto-loads.
 3. The bundle plus the capture doctrine ride in via `--append-system-prompt`.

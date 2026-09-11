@@ -60,8 +60,15 @@ $(cat "$ROOT/global/identity.md" "$ROOT/global/preferences.md" "$ROOT/global/sty
   grandma_splash "new sweater"
   printf '  ⟳ knitting a new sweater from your description...\n\n' >&2
   cd "$ROOT"
-  exec claude --name "grandma:new-sweater" ${PASSTHRU[@]+"${PASSTHRU[@]}"} \
-    --append-system-prompt "$SYS" "$INIT"
+  # Wrap rather than exec: an exec'd process cannot clean up the prompt file behind it. This
+  # still never returns to the caller, which is what create_new_scope promises.
+  prepare_sysprompt "$SYS" "new sweater" "$ROOT" || exit 1
+  trap cleanup_sysprompt EXIT
+  local _rc=0
+  claude --name "grandma:new-sweater" ${PASSTHRU[@]+"${PASSTHRU[@]}"} \
+    "${SYSPROMPT_ARGS[@]}" "$INIT" || _rc=$?
+  cleanup_sysprompt
+  exit "$_rc"
 }
 
 # First run: no sweaters yet. Warmly onboard instead of showing a bare picker.
@@ -76,8 +83,13 @@ first_run_onboard() {
     local SYS; SYS="$(cat "$ENGINE/prompts/init-interview.md")"
     grandma_splash "grandma"
     cd "$ROOT"
-    exec claude --name "grandma:init" ${PASSTHRU[@]+"${PASSTHRU[@]}"} --append-system-prompt "$SYS" \
-      "Introduce yourself, explain what a sweater is, interview me, and set up my identity, preferences, and first sweaters per your instructions."
+    prepare_sysprompt "$SYS" "" "$ROOT" || exit 1
+    trap cleanup_sysprompt EXIT
+    local _rc=0
+    claude --name "grandma:init" ${PASSTHRU[@]+"${PASSTHRU[@]}"} "${SYSPROMPT_ARGS[@]}" \
+      "Introduce yourself, explain what a sweater is, interview me, and set up my identity, preferences, and first sweaters per your instructions." || _rc=$?
+    cleanup_sysprompt
+    exit "$_rc"
   fi
   printf "  Let's knit your first sweater.\n" >&2
   create_new_scope   # execs
@@ -382,18 +394,22 @@ Scope working root: ${WROOT:-unknown}. Onboard '$PROJECT' per your instructions 
   if [[ "${GRANDMA_DRY_RUN:-0}" == "1" ]]; then
     echo "mode:         ONBOARD (project '$PROJECT' unknown in $SCOPE)" >&2
     echo "working root: ${WROOT:-unknown}" >&2
-    echo "would launch: (cd $ROOT && claude --name grandma:onboard/$PROJECT --add-dir ${WROOT:-<none>} --append-system-prompt <onboard+memory> <init>)" >&2
+    echo "would launch: (cd $ROOT && claude --name grandma:onboard/$PROJECT --add-dir ${WROOT:-<none>} <system prompt: onboard+memory> <init>)" >&2
     exit 0
   fi
 
   grandma_splash "$SCOPE"
   printf "  ⟳ %s does not know '%s' yet — let's set it up...\n\n" "$SCOPE" "$PROJECT" >&2
   cd "$ROOT"
-  if [[ -n "$WROOT" ]]; then
-    exec claude --name "grandma:onboard/$PROJECT" --add-dir "$WROOT" ${PASSTHRU[@]+"${PASSTHRU[@]}"} --append-system-prompt "$OSYS" "$OINIT"
-  else
-    exec claude --name "grandma:onboard/$PROJECT" ${PASSTHRU[@]+"${PASSTHRU[@]}"} --append-system-prompt "$OSYS" "$OINIT"
-  fi
+  # $OSYS carries the whole bundle, so onboarding hit exactly the same argv wall as a launch.
+  prepare_sysprompt "$OSYS" "$SCOPE" "$ROOT" || exit 1
+  trap cleanup_sysprompt EXIT
+  ADD_WROOT=()
+  [[ -n "$WROOT" ]] && ADD_WROOT=(--add-dir "$WROOT")
+  ONBOARD_RC=0
+  claude --name "grandma:onboard/$PROJECT" ${ADD_WROOT[@]+"${ADD_WROOT[@]}"} ${PASSTHRU[@]+"${PASSTHRU[@]}"} "${SYSPROMPT_ARGS[@]}" "$OINIT" || ONBOARD_RC=$?
+  cleanup_sysprompt
+  exit "$ONBOARD_RC"
 fi
 
 # ---- normal / known-project launch ----
@@ -451,7 +467,13 @@ if [[ "${GRANDMA_DRY_RUN:-0}" == "1" ]]; then
   fi
   echo "capture:      doctrine loaded (prompts/capture.md) · grandma repo writable via --add-dir" >&2
   echo "banner:       $BANNER" >&2
-  echo "would launch: (cd ${LAUNCH_DIR:-.} && claude --name grandma:$SCOPE${RP_NAME:+/$RP_NAME} ${PASSTHRU[*]:-} --append-system-prompt <bundle> <init>)" >&2
+  if [[ "${GRANDMA_NO_PROMPT_FILE:-0}" != "1" ]] && claude_accepts_prompt_file; then
+    _tp="--append-system-prompt-file <tmpfile>"
+  else
+    _tp="--append-system-prompt <bundle>"
+    echo "transport:    argv (this claude has no --append-system-prompt-file); limit $(argv_prompt_limit) bytes, bundle ${#SYSPROMPT}" >&2
+  fi
+  echo "would launch: (cd ${LAUNCH_DIR:-.} && claude --name grandma:$SCOPE${RP_NAME:+/$RP_NAME} ${PASSTHRU[*]:-} $_tp <init>)" >&2
   echo "--- init prompt ---" >&2
   printf '%s\n' "$INIT" >&2
   echo "--- sysprompt: ${#SYSPROMPT} chars ---" >&2
@@ -502,6 +524,18 @@ if [[ "${dirty:-0}" -gt 0 ]]; then
   printf '  🧶 memory has %s uncommitted change(s) — review: git -C %s diff\n' "$dirty" "$ROOT" >&2
 fi
 
+# Backpressure on the shape that quietly kills a memory home. Every .md at a sweater root is
+# loaded into EVERY session, so an append-only log.md there grows the bundle without bound
+# until the launch itself fails. The dated log under log/ is the tier that rotates and is read
+# only on demand. Warn once, name the fix (silence with GRANDMA_NO_SIZE_WARN=1).
+if [[ "${GRANDMA_NO_SIZE_WARN:-0}" != "1" ]]; then
+  _scope_dir="$(resolve_scope_dir "$SCOPE" 2>/dev/null || true)"   # not _sd: the watch loop below uses that
+  if [[ -n "$_scope_dir" && -f "$_scope_dir/log.md" ]]; then
+    printf '  🧶 %s/log.md loads every session and only grows — move it into the dated log:\n' "$SCOPE" >&2
+    printf '     mkdir -p %s/log && mv %s/log.md %s/log/%s.md\n' "$_scope_dir" "$_scope_dir" "$_scope_dir" "$(date +%Y-%m-%d)" >&2
+  fi
+fi
+
 # Fingerprint what is dirty NOW, so post_session can tell this session's captures from
 # older, already-reviewed diffs. Without this, every uncommitted file re-triggered the
 # end-of-session review prompt on every launch until it was committed.
@@ -537,9 +571,24 @@ export GRANDMA_DEFER_DISTILL=1
 distilled=0
 # Abrupt exit (window closed / terminated): capture the session in the background so it is
 # never lost. Clean exit: disarm, then post_session distills + reviews in the foreground.
-trap on_hangup HUP TERM
+# The bundle goes to claude by FILE where the flag exists, so memory size is never bounded by
+# an argv limit. Older builds fall back to argv, which is where the kernel caps bite, so that
+# path refuses early with an explanation rather than letting the shell say "Argument list too
+# long" seconds after the banner claimed memory was loaded.
+# The prompt travels as a FILE wherever the CLI takes one, so memory size is never bounded by
+# an argv limit. Older builds fall back to argv and are refused early, with an explanation,
+# rather than being walked into the kernel's own error.
+prepare_sysprompt "$SYSPROMPT" "$SCOPE" "$ROOT" || exit 1
+# That file holds the whole memory bundle, so it must not survive us. EXIT is what makes it
+# true on EVERY path: HUP and TERM are handled below, but Ctrl+C is not trapped at all, and
+# without this the file was left behind on every interrupted session. EXIT fires for an
+# untrapped SIGINT too, and unlike a trap on INT it does not change what any signal MEANS.
+trap cleanup_sysprompt EXIT
+
+trap 'cleanup_sysprompt; on_hangup' HUP TERM
 CLAUDE_RC=0
-claude --name "grandma:$SCOPE${RP_NAME:+/$RP_NAME}" --add-dir "$ROOT" ${PASSTHRU[@]+"${PASSTHRU[@]}"} --append-system-prompt "$SYSPROMPT" "$INIT" || CLAUDE_RC=$?
+claude --name "grandma:$SCOPE${RP_NAME:+/$RP_NAME}" --add-dir "$ROOT" ${PASSTHRU[@]+"${PASSTHRU[@]}"} "${SYSPROMPT_ARGS[@]}" "$INIT" || CLAUDE_RC=$?
 trap - HUP TERM
+cleanup_sysprompt
 post_session
 exit "$CLAUDE_RC"

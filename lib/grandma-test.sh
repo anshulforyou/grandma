@@ -266,6 +266,47 @@ for f in "$ENGINE"/lib/*.sh "$ENGINE/bin/grandma" "$ENGINE/hooks/pre-commit" "$E
 done
 [[ "$gs_ok" == "1" ]] && pass "every grep glob operand is backed by /dev/null (cannot fall back to stdin)"
 
+# ---- 17. The bundle never depends on fitting in argv, and the doctrine says where logs go ----
+# Two kernel limits capped memory for reasons that have nothing to do with how much memory is
+# sensible: Linux caps ONE argument at MAX_ARG_STRLEN (131072 bytes, hardcoded, unrelated to
+# ARG_MAX), and BSD caps argv plus envp together at ARG_MAX. The bundle used to ride as a single
+# argument, so a large home died on the shell's "Argument list too long" moments after grandma
+# announced that memory had loaded. A reported home hit that at 1,040,331 bytes.
+# Two things keep it fixed and each can regress silently, so both are pinned here.
+# (a) The launcher must prefer the file transport and must refuse with its own message when it
+#     cannot, rather than attempting an exec the kernel will reject.
+# (b) The capture doctrine must NAME the rotating log path. Told only to use "the sweater's log",
+#     a model writes <sweater>/log.md, which lands in the always-loaded tier and grows forever.
+#     That is what produced the oversized home, so the wording is load-bearing, not cosmetic.
+echo "== 17. memory size is not bounded by argv, and logs are routed to the rotating tier =="
+bl_ok=1
+grep -q 'append-system-prompt-file' "$ENGINE/lib/grandma-launch.sh" 2>/dev/null || {
+  bad "launcher does not use --append-system-prompt-file: memory is capped by an argv limit"; bl_ok=0; }
+grep -q 'oversized_bundle_error' "$ENGINE/lib/grandma-lib.sh" 2>/dev/null || {
+  bad "no oversized-bundle refusal: the shell would report the failure instead"; bl_ok=0; }
+grep -q 'prepare_sysprompt' "$ENGINE/lib/grandma-launch.sh" 2>/dev/null || {
+  bad "launcher does not route its system prompt through prepare_sysprompt"; bl_ok=0; }
+grep -q 'MAX_ARG_STRLEN\|131072' "$ENGINE/lib/grandma-lib.sh" 2>/dev/null || {
+  bad "argv limit helper does not account for the Linux per-argument cap"; bl_ok=0; }
+grep -q 'run_bounded' "$ENGINE/lib/grandma-lib.sh" 2>/dev/null || {
+  bad "the launch-time capability probe is not bounded: an unresponsive CLI would hang the launch"; bl_ok=0; }
+# No engine file may hand a prompt to the CLI on argv. grandma-lib.sh is the one exception: it
+# holds the guarded fallback, which checks the size first. Every other site goes through
+# prepare_sysprompt, so a new caller cannot quietly reintroduce the cap for its own path.
+# grandma-lib.sh holds the guarded fallback; grandma-test.sh is this checker and contains the
+# pattern as data, so neither is a caller and neither is scanned.
+for _f in "$ENGINE"/lib/*.sh; do
+  case "$(basename "$_f")" in grandma-lib.sh|grandma-test.sh) continue ;; esac
+  if grep -q -- '--append-system-prompt "' "$_f" 2>/dev/null; then
+    bad "$(basename "$_f"): passes a system prompt on argv; use prepare_sysprompt"; bl_ok=0
+  fi
+done
+grep -qE 'log/<?YYYY|log/<date>|log/<YYYY' "$ENGINE/prompts/capture.md" 2>/dev/null || {
+  bad "capture doctrine does not name log/<date>.md: captures will land in the always-loaded tier"; bl_ok=0; }
+grep -q 'log.md' "$ENGINE/prompts/capture.md" 2>/dev/null || {
+  bad "capture doctrine does not warn against a flat log.md"; bl_ok=0; }
+[[ "$bl_ok" == "1" ]] && pass "bundle transport is file-based, guarded, and logs route to log/<date>.md"
+
 echo
 if [[ "$fail" == "0" ]]; then echo "grandma-test: ALL PASS"; else echo "grandma-test: FAILURES ABOVE"; fi
 exit "$fail"

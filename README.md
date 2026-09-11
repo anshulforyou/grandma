@@ -136,7 +136,20 @@ project CLAUDE.md   deep per-project instructions            auto-loaded in that
 - `grandma acme billing-api` also drops you into that project so its CLAUDE.md rides along.
 - `grandma` alone shows a picker, including "describe a new sweater" where you explain a new context in plain words and grandma scaffolds it.
 
+grandma hands the assembled memory to the CLI as a file rather than on the command line, because a single command-line argument is capped at 128 KB on Linux and the whole command line at about a megabyte on macOS, and a memory home can outgrow either. On a CLI too old to take a file it falls back to the command line, checks the size first, and explains what to shrink instead of leaving you with the shell's `Argument list too long`. Force that older path with `GRANDMA_NO_PROMPT_FILE=1`, cap the one-off capability check with `GRANDMA_PROBE_TIMEOUT` (5 seconds by default), and silence the warning about a mis-tiered log with `GRANDMA_NO_SIZE_WARN=1`.
+
 Memory lives in `GRANDMA_HOME` (default `~/.grandma`), a git repo that belongs to you. The engine never stores your data next to its own code.
+
+Inside a sweater there are two tiers, and the difference matters:
+
+```text
+<sweater>/facts.md          every .md at the sweater root      loaded EVERY session
+<sweater>/projects.md       small, curated, updated in place
+<sweater>/decisions.md      the exception: on demand only      loaded with --full
+<sweater>/log/<date>.md     dated, append-only, rotates        loaded with --full (newest only)
+```
+
+Anything that grows belongs in `log/`. Put an append-only file at the sweater root and it rides in every session from then on, which is how a memory home quietly becomes too large to load. If you have a flat `log.md`, move it: `mkdir -p acme/log && mv acme/log.md acme/log/2026-01-31.md`.
 
 ### She learns while you work
 

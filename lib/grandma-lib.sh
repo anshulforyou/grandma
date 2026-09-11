@@ -479,3 +479,174 @@ notify_user() {
     "$(date '+%Y-%m-%dT%H:%M:%S')" "$title" "$body" >> "$log" 2>/dev/null
   return 1
 }
+
+# ---------------------------------------------------------------- argv limits ----
+# The memory bundle used to ride to the CLI as ONE argv entry. Two different kernel limits
+# make that fail, and neither is about how much memory is reasonable to load:
+#   Linux  MAX_ARG_STRLEN caps a SINGLE argument at 131072 bytes (PAGE_SIZE * 32). It is
+#          hardcoded since 2.6.23, unrelated to ARG_MAX, and cannot be raised. The kernel
+#          measures the string INCLUDING its terminator, so the largest prompt that actually
+#          fits is 131071. Reporting 131072 would let a prompt of exactly that size through
+#          the check and straight into the E2BIG it was meant to prevent.
+#   BSD    no per-argument cap, but argv plus envp together must fit ARG_MAX.
+# So a home that is merely large stops launching, with the shell reporting "Argument list too
+# long" after grandma has already said memory loaded. Prefer the file flag; fall back to argv
+# and refuse early with a real explanation.
+
+# argv_prompt_limit — largest system prompt that can safely travel on argv here.
+argv_prompt_limit() {
+  local am envb
+  case "$(uname -s)" in
+    Linux) echo 131071 ;;
+    *)
+      am="$(getconf ARG_MAX 2>/dev/null || echo 262144)"
+      envb="$(env 2>/dev/null | wc -c | tr -d ' ')"
+      [[ "$envb" =~ ^[0-9]+$ ]] || envb=8192
+      echo $(( am - envb - 8192 ))
+      ;;
+  esac
+}
+
+# run_bounded <secs> <cmd...> — run a command with a wall-clock cap, print its stdout. The
+# poll runs detached at launch time, so a network stall must never leave a process hanging
+# around forever. Pure bash: no timeout(1) on macOS, no new dependency.
+# Completion is detected by a marker file the child writes, NOT by `kill -0`: a finished
+# child can sit as a zombie until it is reaped, and kill -0 reports a zombie as alive.
+run_bounded() {
+  local secs="$1"; shift
+  local out finished pid i=0 rc=0
+  out="$(mktemp "${TMPDIR:-/tmp}/grandma-knit-out-XXXXXX")" || return 1
+  finished="$out.rc"
+  ( "$@" > "$out" 2>/dev/null; printf '%s' "$?" > "$finished" ) &
+  pid=$!
+  while [[ "$i" -lt $((secs * 10)) ]]; do
+    [[ -s "$finished" ]] && break
+    sleep 0.1; i=$((i + 1))
+  done
+  if [[ -s "$finished" ]]; then
+    rc="$(cat "$finished")"
+  else
+    # Kill the CHILDREN first. The command runs inside a backgrounded subshell, so signalling
+    # only $pid reaps the subshell and leaves the actual network call running long past the
+    # bound it was given. A negative pid does not help here either: the subshell inherits its
+    # parent's process group rather than leading one of its own.
+    pkill -TERM -P "$pid" 2>/dev/null || true
+    kill -TERM "$pid" 2>/dev/null; rc=124
+  fi
+  wait "$pid" 2>/dev/null || true
+  cat "$out"; rm -f "$out" "$finished"
+  return "${rc:-1}"
+}
+
+# claude_accepts_prompt_file — does the installed claude take --append-system-prompt-file?
+# Probed, not version-gated: some builds carry the flag without listing it in the main help
+# block, so any version floor would be a guess. Normally about 0.1s, no cache worth keeping.
+# BOUNDED, and stdin comes from /dev/null, because this runs BEFORE the launcher arms its
+# HUP trap: a claude that never answers --help would otherwise hang the CLI with no output
+# and no way to interrupt cleanly. A probe that cannot answer is treated as "no flag", which
+# falls back to argv where the size guard explains itself.
+# Takes the binary to probe, because watch resolves claude by path when it is not on PATH and
+# must not be told "no flag" merely because a bare `claude` is missing.
+claude_accepts_prompt_file() {
+  local bin="${1:-claude}"
+  run_bounded "${GRANDMA_PROBE_TIMEOUT:-5}" "$bin" --help < /dev/null 2>/dev/null \
+    | grep -qE -- '--append-system-prompt\[?-file'
+}
+
+# write_sysprompt_file <text> — stash a system prompt in a private file, echo the path.
+# mktemp creates it mode 600, and $TMPDIR is mode 700 per user, which matters because this
+# file is the whole memory bundle. Caller removes it; a wrapped launch does so from a trap.
+write_sysprompt_file() {
+  local f
+  f="$(mktemp "${TMPDIR:-/tmp}/grandma-sysprompt.XXXXXX")" || return 1
+  printf '%s' "$1" > "$f" || { rm -f "$f"; return 1; }
+  printf '%s' "$f"
+}
+
+# heaviest_loaded_file <scope_dir> — path of the largest always-loaded .md in a scope, i.e.
+# the file to shrink first. decisions.md is excluded because assemble already defers it.
+heaviest_loaded_file() {
+  local d="$1" f big="" bigsz=0 sz
+  for f in "$d"/*.md; do
+    [[ -f "$f" ]] || continue
+    [[ "$(basename "$f")" == "decisions.md" ]] && continue
+    sz="$(file_size "$f")"; [[ "$sz" =~ ^[0-9]+$ ]] || continue
+    if [[ "$sz" -gt "$bigsz" ]]; then bigsz="$sz"; big="$f"; fi
+  done
+  printf '%s' "$big"
+}
+
+# bundle_shrink_hint <root> <scope> — the most useful next action for an oversized scope.
+# A flat log.md is always the wrong shape, so name it; otherwise name the biggest file.
+bundle_shrink_hint() {
+  local root="$1" scope="$2" d="$1/$2" big
+  if [[ -f "$d/log.md" ]]; then
+    printf '  A flat log.md loads on EVERY session and only grows. Move it into the dated log,\n'
+    printf '  which is read only on demand:\n'
+    printf '    mkdir -p %s/log && mv %s/log.md %s/log/%s.md\n' "$d" "$d" "$d" "$(date +%Y-%m-%d)"
+    return
+  fi
+  big="$(heaviest_loaded_file "$d")"
+  if [[ -n "$big" ]]; then
+    printf '  Biggest file loaded every session: %s (%s bytes).\n' "$big" "$(file_size "$big")"
+    printf '  Consolidate it, or move append-only parts to %s/log/%s.md, which is\n' "$d" "$(date +%Y-%m-%d)"
+    printf '  read only on demand.\n'
+  fi
+}
+
+# prepare_sysprompt <prompt> [scope] [root] — work out how a system prompt reaches the CLI and
+# leave the flag pair in SYSPROMPT_ARGS for the caller to expand. Returns 1 when the prompt
+# cannot be delivered at all, having already explained why, so a caller can exit instead of
+# running head-first into the kernel's refusal.
+# Results come back in globals rather than on stdout because a command substitution is a
+# subshell, which would throw the array away.
+# Sets SYSPROMPT_TMP to the file it wrote, or empty. cleanup_sysprompt removes it, and every
+# caller must arrange that on EXIT: the file holds the user's memory and must not outlive us.
+# prepare_sysprompt <prompt> [scope] [root] [claude-bin]
+prepare_sysprompt() {
+  local prompt="$1" scope="${2:-}" root="${3:-}" bin="${4:-claude}" limit
+  SYSPROMPT_TMP=""
+  # shellcheck disable=SC2034  # read by every caller in another file; this is the return value
+  SYSPROMPT_ARGS=()
+  if [[ "${GRANDMA_NO_PROMPT_FILE:-0}" != "1" ]] && claude_accepts_prompt_file "$bin"; then
+    SYSPROMPT_TMP="$(write_sysprompt_file "$prompt")" || SYSPROMPT_TMP=""
+  fi
+  if [[ -n "$SYSPROMPT_TMP" ]]; then
+    # shellcheck disable=SC2034  # ditto
+    SYSPROMPT_ARGS=(--append-system-prompt-file "$SYSPROMPT_TMP")
+    return 0
+  fi
+  limit="$(argv_prompt_limit)"
+  if [[ "${#prompt}" -gt "$limit" ]]; then
+    oversized_bundle_error "${#prompt}" "$limit" "$scope" "$root"
+    return 1
+  fi
+  # shellcheck disable=SC2034  # ditto
+  SYSPROMPT_ARGS=(--append-system-prompt "$prompt")
+  return 0
+}
+
+# cleanup_sysprompt — remove the prompt file, if one was written. Safe to call twice.
+cleanup_sysprompt() {
+  if [[ -n "${SYSPROMPT_TMP:-}" ]]; then rm -f "$SYSPROMPT_TMP"; fi
+  SYSPROMPT_TMP=""
+  return 0
+}
+
+# oversized_bundle_error <bytes> <limit> <scope> <root> — say what broke and how to fix it,
+# instead of leaving the shell to print "Argument list too long" with no context.
+oversized_bundle_error() {
+  local bytes="$1" limit="$2" scope="$3" root="$4" over=$(( $1 - $2 ))
+  {
+    printf '\n  🧶 MEMORY BUNDLE TOO LARGE TO LAUNCH\n'
+    printf '     bundle        %s bytes\n' "$bytes"
+    printf '     argv limit    %s bytes (%s)\n' "$limit" \
+      "$([[ "$(uname -s)" == Linux ]] && echo 'Linux caps one argument at 128 KB' || echo 'ARG_MAX minus this environment')"
+    printf '     over by       %s bytes\n\n' "$over"
+    printf '  This claude has no --append-system-prompt-file, so the bundle rides on the command\n'
+    printf '  line and the kernel refuses the exec. Upgrading claude removes the limit entirely.\n'
+    printf '  To see everything that loads every session: grandma %s --dry-run\n\n' "$scope"
+    bundle_shrink_hint "$root" "$scope"
+    printf '\n'
+  } >&2
+}
