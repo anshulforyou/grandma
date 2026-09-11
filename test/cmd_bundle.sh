@@ -31,7 +31,7 @@ esac
 prev=""
 for a in "\$@"; do
   case "\$prev" in
-    --append-system-prompt-file) echo "transport=file bytes=\$(wc -c < "\$a" | tr -d ' ') mode=\$(stat -f '%Lp' "\$a" 2>/dev/null || stat -c '%a' "\$a")" > "$SEEN" ;;
+    --append-system-prompt-file) echo "transport=file bytes=\$(wc -c < "\$a" | tr -d ' ') mode=\$(stat -c '%a' "\$a" 2>/dev/null || stat -f '%Lp' "\$a" 2>/dev/null)" > "$SEEN" ;;
     --append-system-prompt)      echo "transport=argv bytes=\${#a}" > "$SEEN" ;;
   esac
   prev="\$a"
