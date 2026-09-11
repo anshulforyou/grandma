@@ -282,12 +282,25 @@ echo "== 17. memory size is not bounded by argv, and logs are routed to the rota
 bl_ok=1
 grep -q 'append-system-prompt-file' "$ENGINE/lib/grandma-launch.sh" 2>/dev/null || {
   bad "launcher does not use --append-system-prompt-file: memory is capped by an argv limit"; bl_ok=0; }
-grep -q 'oversized_bundle_error' "$ENGINE/lib/grandma-launch.sh" 2>/dev/null || {
-  bad "launcher has no oversized-bundle refusal: the shell would report the failure instead"; bl_ok=0; }
+grep -q 'oversized_bundle_error' "$ENGINE/lib/grandma-lib.sh" 2>/dev/null || {
+  bad "no oversized-bundle refusal: the shell would report the failure instead"; bl_ok=0; }
+grep -q 'prepare_sysprompt' "$ENGINE/lib/grandma-launch.sh" 2>/dev/null || {
+  bad "launcher does not route its system prompt through prepare_sysprompt"; bl_ok=0; }
 grep -q 'MAX_ARG_STRLEN\|131072' "$ENGINE/lib/grandma-lib.sh" 2>/dev/null || {
   bad "argv limit helper does not account for the Linux per-argument cap"; bl_ok=0; }
 grep -q 'run_bounded' "$ENGINE/lib/grandma-lib.sh" 2>/dev/null || {
   bad "the launch-time capability probe is not bounded: an unresponsive CLI would hang the launch"; bl_ok=0; }
+# No engine file may hand a prompt to the CLI on argv. grandma-lib.sh is the one exception: it
+# holds the guarded fallback, which checks the size first. Every other site goes through
+# prepare_sysprompt, so a new caller cannot quietly reintroduce the cap for its own path.
+# grandma-lib.sh holds the guarded fallback; grandma-test.sh is this checker and contains the
+# pattern as data, so neither is a caller and neither is scanned.
+for _f in "$ENGINE"/lib/*.sh; do
+  case "$(basename "$_f")" in grandma-lib.sh|grandma-test.sh) continue ;; esac
+  if grep -q -- '--append-system-prompt "' "$_f" 2>/dev/null; then
+    bad "$(basename "$_f"): passes a system prompt on argv; use prepare_sysprompt"; bl_ok=0
+  fi
+done
 grep -qE 'log/<?YYYY|log/<date>|log/<YYYY' "$ENGINE/prompts/capture.md" 2>/dev/null || {
   bad "capture doctrine does not name log/<date>.md: captures will land in the always-loaded tier"; bl_ok=0; }
 grep -q 'log.md' "$ENGINE/prompts/capture.md" 2>/dev/null || {

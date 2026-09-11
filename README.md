@@ -136,6 +136,8 @@ project CLAUDE.md   deep per-project instructions            auto-loaded in that
 - `grandma acme billing-api` also drops you into that project so its CLAUDE.md rides along.
 - `grandma` alone shows a picker, including "describe a new sweater" where you explain a new context in plain words and grandma scaffolds it.
 
+grandma hands the assembled memory to the CLI as a file rather than on the command line, because a single command-line argument is capped at 128 KB on Linux and the whole command line at about a megabyte on macOS, and a memory home can outgrow either. On a CLI too old to take a file it falls back to the command line, checks the size first, and explains what to shrink instead of leaving you with the shell's `Argument list too long`. Force that older path with `GRANDMA_NO_PROMPT_FILE=1`, cap the one-off capability check with `GRANDMA_PROBE_TIMEOUT` (5 seconds by default), and silence the warning about a mis-tiered log with `GRANDMA_NO_SIZE_WARN=1`.
+
 Memory lives in `GRANDMA_HOME` (default `~/.grandma`), a git repo that belongs to you. The engine never stores your data next to its own code.
 
 Inside a sweater there are two tiers, and the difference matters:

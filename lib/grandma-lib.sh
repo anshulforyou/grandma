@@ -545,8 +545,11 @@ run_bounded() {
 # HUP trap: a claude that never answers --help would otherwise hang the CLI with no output
 # and no way to interrupt cleanly. A probe that cannot answer is treated as "no flag", which
 # falls back to argv where the size guard explains itself.
+# Takes the binary to probe, because watch resolves claude by path when it is not on PATH and
+# must not be told "no flag" merely because a bare `claude` is missing.
 claude_accepts_prompt_file() {
-  run_bounded "${GRANDMA_PROBE_TIMEOUT:-5}" claude --help < /dev/null 2>/dev/null \
+  local bin="${1:-claude}"
+  run_bounded "${GRANDMA_PROBE_TIMEOUT:-5}" "$bin" --help < /dev/null 2>/dev/null \
     | grep -qE -- '--append-system-prompt\[?-file'
 }
 
@@ -589,6 +592,45 @@ bundle_shrink_hint() {
     printf '  Consolidate it, or move append-only parts to %s/log/%s.md, which is\n' "$d" "$(date +%Y-%m-%d)"
     printf '  read only on demand.\n'
   fi
+}
+
+# prepare_sysprompt <prompt> [scope] [root] — work out how a system prompt reaches the CLI and
+# leave the flag pair in SYSPROMPT_ARGS for the caller to expand. Returns 1 when the prompt
+# cannot be delivered at all, having already explained why, so a caller can exit instead of
+# running head-first into the kernel's refusal.
+# Results come back in globals rather than on stdout because a command substitution is a
+# subshell, which would throw the array away.
+# Sets SYSPROMPT_TMP to the file it wrote, or empty. cleanup_sysprompt removes it, and every
+# caller must arrange that on EXIT: the file holds the user's memory and must not outlive us.
+# prepare_sysprompt <prompt> [scope] [root] [claude-bin]
+prepare_sysprompt() {
+  local prompt="$1" scope="${2:-}" root="${3:-}" bin="${4:-claude}" limit
+  SYSPROMPT_TMP=""
+  # shellcheck disable=SC2034  # read by every caller in another file; this is the return value
+  SYSPROMPT_ARGS=()
+  if [[ "${GRANDMA_NO_PROMPT_FILE:-0}" != "1" ]] && claude_accepts_prompt_file "$bin"; then
+    SYSPROMPT_TMP="$(write_sysprompt_file "$prompt")" || SYSPROMPT_TMP=""
+  fi
+  if [[ -n "$SYSPROMPT_TMP" ]]; then
+    # shellcheck disable=SC2034  # ditto
+    SYSPROMPT_ARGS=(--append-system-prompt-file "$SYSPROMPT_TMP")
+    return 0
+  fi
+  limit="$(argv_prompt_limit)"
+  if [[ "${#prompt}" -gt "$limit" ]]; then
+    oversized_bundle_error "${#prompt}" "$limit" "$scope" "$root"
+    return 1
+  fi
+  # shellcheck disable=SC2034  # ditto
+  SYSPROMPT_ARGS=(--append-system-prompt "$prompt")
+  return 0
+}
+
+# cleanup_sysprompt — remove the prompt file, if one was written. Safe to call twice.
+cleanup_sysprompt() {
+  if [[ -n "${SYSPROMPT_TMP:-}" ]]; then rm -f "$SYSPROMPT_TMP"; fi
+  SYSPROMPT_TMP=""
+  return 0
 }
 
 # oversized_bundle_error <bytes> <limit> <scope> <root> — say what broke and how to fix it,

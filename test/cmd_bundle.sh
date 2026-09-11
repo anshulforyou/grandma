@@ -89,6 +89,32 @@ assert_not_contains "Argument list too long" "the raw shell error is never what 
 assert_contains "log/" "it points at the tier that rotates"
 
 # ---------------------------------------------------------------------------------------
+section "every path that carries memory survives an oversized home, not just the launch"
+# onboarding builds its prompt from the same bundle, and the distiller builds one LARGER than a
+# launch bundle because it assembles with --full. Both used to hit the same wall, and the
+# distiller's failure was near-silent: stderr discarded, --auto detached.
+rm -f "$SEEN"
+capture "$GBIN" globex a-project-that-does-not-exist
+assert_not_contains "Argument list too long" "onboarding an unknown project does not die on argv"
+if [ -f "$SEEN" ] && grep -q 'transport=file' "$SEEN"; then
+  ok "onboarding sends its prompt by file too ($(cat "$SEEN"))"
+else
+  fail "onboarding still puts the bundle on the command line" "$(cat "$SEEN" 2>/dev/null)"
+fi
+
+printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"use atlas not yarn"}]}}\n' > "$TMP/t.jsonl"
+rm -f "$SEEN"
+capture "$ENGINE/lib/grandma-save.sh" globex --transcript "$TMP/t.jsonl" --auto
+assert_not_contains "Argument list too long" "the after-every-session distill does not die on argv"
+
+if ls "${TMPDIR:-/tmp}"/grandma-sysprompt.* >/dev/null 2>&1; then
+  fail "a prompt file was left behind by one of those paths"
+  rm -f "${TMPDIR:-/tmp}"/grandma-sysprompt.*
+else
+  ok "neither path leaves a prompt file behind"
+fi
+
+# ---------------------------------------------------------------------------------------
 section "the capability probe can never hang the launcher"
 # The probe runs BEFORE the HUP trap is armed, so a CLI that never answers --help would
 # otherwise freeze the CLI with no output at all. Bound it, and fall back.

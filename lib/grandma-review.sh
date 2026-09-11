@@ -84,8 +84,13 @@ When every listed proposal has been handled, stop."
     echo "would apply: ${FILES[*]} (scope=$RSCOPE)" >&2; exit 0
   fi
   cd "$ROOT"
-  exec claude --name "grandma:review" --append-system-prompt "$SYS" \
-    "Walk me through the pending memory proposal(s), apply what I approve, commit each, then delete each handled proposal."
+  prepare_sysprompt "$SYS" "$RSCOPE" "$ROOT" || exit 1
+  trap cleanup_sysprompt EXIT
+  REVIEW_RC=0
+  claude --name "grandma:review" "${SYSPROMPT_ARGS[@]}" \
+    "Walk me through the pending memory proposal(s), apply what I approve, commit each, then delete each handled proposal." || REVIEW_RC=$?
+  cleanup_sysprompt
+  exit "$REVIEW_RC"
 fi
 
 # ---- clear ----

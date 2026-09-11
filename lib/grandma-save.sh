@@ -148,6 +148,12 @@ one-line why. If nothing is durable, output exactly 'No durable learnings.'"
     exit 0
   fi
 
+  # $ASYS carries the sweater's memory at --full, which is larger than a launch bundle, so this
+  # hit the argv wall before the launch path did. It fails into "(distiller failed)" with stderr
+  # discarded and --auto detached, which is the quietest possible way to lose a session.
+  prepare_sysprompt "$ASYS" "$cscope" "$ROOT" || { echo "(distiller failed)" > "$out"; rm -f "$readable"; return 0; }
+  trap cleanup_sysprompt EXIT
+
   # Headless distill; write proposal file. Never touches memory.
   # Run claude -p from a NEUTRAL dir (grandma repo, which has no SessionEnd hook) and with
   # the recursion guard set, so this headless session cannot fire a project SessionEnd hook
@@ -157,8 +163,9 @@ one-line why. If nothing is durable, output exactly 'No durable learnings.'"
     # decides which sweater a proposal belongs to, so it has to be exact.
     echo "# scope=$cscope${PROJECT_NAME:+ project=$PROJECT_NAME}  transcript=$(basename "$TRANSCRIPT")"
     echo
-    ( cd "$ROOT" && GRANDMA_DISTILLING=1 claude -p "$APROMPT" --append-system-prompt "$ASYS" 2>/dev/null ) || echo "(distiller failed)"
+    ( cd "$ROOT" && GRANDMA_DISTILLING=1 claude -p "$APROMPT" "${SYSPROMPT_ARGS[@]}" 2>/dev/null ) || echo "(distiller failed)"
   } > "$out"
+  cleanup_sysprompt
   rm -f "$readable"
   # Keep the proposal only if the distiller actually proposed something. A "No durable
   # learnings" result (the model often adds justification prose, so match the phrase anywhere),
@@ -201,9 +208,14 @@ if [[ "${GRANDMA_DRY_RUN:-0}" == "1" ]]; then
     echo "scope:       $SCOPE${PROJECT_NAME:+  project=$PROJECT_NAME}"
     echo "transcript:  $TRANSCRIPT ($lines lines)"
     [[ -n "$PROJECT_DIR" ]] && echo "add-dir:     $PROJECT_DIR (can edit its CLAUDE.md)"
-    echo "would launch: (cd $ROOT && claude --name distill:$SCOPE${PROJECT_NAME:+/$PROJECT_NAME} ${ADD_DIR[*]:-} --append-system-prompt <distiller+memory> <init>)"; } >&2
+    echo "would launch: (cd $ROOT && claude --name distill:$SCOPE${PROJECT_NAME:+/$PROJECT_NAME} ${ADD_DIR[*]:-} <system prompt: distiller+memory> <init>)"; } >&2
   exit 0
 fi
 
 cd "$ROOT"
-exec claude --name "distill:$SCOPE${PROJECT_NAME:+/$PROJECT_NAME}" ${ADD_DIR[@]+"${ADD_DIR[@]}"} --append-system-prompt "$SYSPROMPT" "$INIT"
+prepare_sysprompt "$SYSPROMPT" "$SCOPE" "$ROOT" || exit 1
+trap cleanup_sysprompt EXIT
+DISTILL_RC=0
+claude --name "distill:$SCOPE${PROJECT_NAME:+/$PROJECT_NAME}" ${ADD_DIR[@]+"${ADD_DIR[@]}"} "${SYSPROMPT_ARGS[@]}" "$INIT" || DISTILL_RC=$?
+cleanup_sysprompt
+exit "$DISTILL_RC"

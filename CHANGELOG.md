@@ -13,7 +13,12 @@
   else. The file is created private (mode 600) and removed when the session ends, including on a
   closed window. On an older CLI without that flag grandma falls back to the command line, checks
   the size against the real limit for the platform first, and if it will not fit it says so in its
-  own words and names the file to shrink instead of leaving you with the shell's error.
+  own words and names the file to shrink instead of leaving you with the shell's error. Every path
+  that carries memory moved across, not just the one that launches a session: onboarding a new
+  project, the distill that runs after every session, review, ingest, watch, the compaction
+  checkpoint, the first-run interview and knitting a new sweater. The distill mattered most of the
+  three, because it assembles memory in full, so it broke before a launch did, and it failed almost
+  silently with its error discarded and the automatic run detached.
 - Fixed: the capture doctrine told grandma that a running note belongs in "the sweater's log"
   without saying where that is, so notes were written to `<sweater>/log.md`. Every markdown file at
   a sweater's root is loaded into every session, while `log/<date>.md` is read only on demand, so an

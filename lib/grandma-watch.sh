@@ -265,11 +265,13 @@ PY
       SYS="$(cat "$ENGINE/prompts/watch-digest.md")
 
 STUDY QUESTION: $question"
+      prepare_sysprompt "$SYS" "" "$ROOT" "$CB" || { OUT=""; SYSPROMPT_ARGS=(); }
       OUT="$( cd "$ROOT" && GRANDMA_DISTILLING=1 "$CB" -p \
         "Digest each session below per your instructions, focused on the watch question.
 
 $(cat "$dir/.work/batch.md")" \
-        --append-system-prompt "$SYS" 2>/dev/null )" || OUT=""
+        ${SYSPROMPT_ARGS[@]+"${SYSPROMPT_ARGS[@]}"} 2>/dev/null )" || OUT=""
+      cleanup_sysprompt
       if [[ -n "$OUT" ]]; then
         { echo; echo "----- tick $(date '+%Y-%m-%d %H:%M') -----"; printf '%s\n' "$OUT"; } >> "$dir/data/digests.md"
         cat "$dir/.work/batch.ids" >> "$dir/data/digests.done"
@@ -310,6 +312,7 @@ PY
     RSYS="$(cat "$ENGINE/prompts/watch-report.md")
 
 STUDY QUESTION: $question"
+    prepare_sysprompt "$RSYS" "" "$ROOT" "$CB" || SYSPROMPT_ARGS=()
     ( cd "$ROOT" && GRANDMA_DISTILLING=1 "$CB" -p \
       "Write the final watch report per your instructions.
 
@@ -318,7 +321,8 @@ $(cat "$dir/.work/metrics-summary.md")
 
 ===== SESSION DIGESTS =====
 $(cat "$dir/data/digests.md" 2>/dev/null || echo '(no digests collected)')" \
-      --append-system-prompt "$RSYS" 2>/dev/null ) > "$dir/report.md" || true
+      ${SYSPROMPT_ARGS[@]+"${SYSPROMPT_ARGS[@]}"} 2>/dev/null ) > "$dir/report.md" || true
+    cleanup_sysprompt
     if [[ -s "$dir/report.md" ]]; then
       set_field "$sj" status '"complete"'
       notify_user "grandma watch" "Report ready: $(basename "$dir")" \

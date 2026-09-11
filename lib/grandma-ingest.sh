@@ -23,6 +23,9 @@ set -euo pipefail
 
 ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT="${GRANDMA_HOME:-$HOME/.grandma}"   # the user's private memory home
+# prepare_sysprompt / cleanup_sysprompt: the ingest prompt embeds the sweater's memory at
+# --full, so it must not ride on argv any more than a launch bundle does.
+source "$ENGINE/lib/grandma-lib.sh"
 INGEST_PROMPT="$ENGINE/prompts/ingest.md"
 ASSEMBLE="$ENGINE/lib/assemble.sh"
 
@@ -77,7 +80,7 @@ if [[ "${GRANDMA_DRY_RUN:-0}" == "1" ]]; then
     echo "scope dir:   $SCOPE_DIR"
     echo "found ${#ENTRIES[@]} project CLAUDE.md files:"
     printf '%s' "$LIST" | sed 's/^/  /'
-    echo "would launch: (cd $ROOT && claude --name ingest:$SCOPE --add-dir $SCAN_ROOT --append-system-prompt <ingest+memory> \"<init>\")"
+    echo "would launch: (cd $ROOT && claude --name ingest:$SCOPE --add-dir $SCAN_ROOT <system prompt: ingest+memory> \"<init>\")"
   } >&2
   exit 0
 fi
@@ -96,4 +99,9 @@ mkdir -p "$SCOPE_DIR"
 
 # Launch the ingest session in the grandma repo, with the scanned folder readable.
 cd "$ROOT"
-exec claude --name "ingest:$SCOPE" --add-dir "$SCAN_ROOT" --append-system-prompt "$SYSPROMPT" "$INIT"
+prepare_sysprompt "$SYSPROMPT" "$SCOPE" "$ROOT" || exit 1
+trap cleanup_sysprompt EXIT
+INGEST_RC=0
+claude --name "ingest:$SCOPE" --add-dir "$SCAN_ROOT" "${SYSPROMPT_ARGS[@]}" "$INIT" || INGEST_RC=$?
+cleanup_sysprompt
+exit "$INGEST_RC"
