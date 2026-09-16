@@ -138,7 +138,7 @@ project CLAUDE.md   deep per-project instructions            auto-loaded in that
 
 ### Connections, bound to one sweater
 
-A sweater can own its MCP servers, and they reach every project in that sweater and nothing outside it. Put a Notion workspace on `aarc` and it is there in every Aarc project and in none of your others. Two sweaters can hold two different Notion workspaces, or two different mail accounts, without either one seeing the other.
+A sweater can own its MCP servers, and they reach every project in that sweater and nothing outside it. Put a Notion workspace on `acme` and it is there in every acme project and in none of your others. Two sweaters can hold two different Notion workspaces, or two different mail accounts, without either one seeing the other.
 
 Servers are declared in the same shape the CLI uses, so a definition can be pasted straight from a vendor's documentation:
 
