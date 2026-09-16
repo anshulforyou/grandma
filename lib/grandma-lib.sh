@@ -602,6 +602,55 @@ bundle_shrink_hint() {
 # subshell, which would throw the array away.
 # Sets SYSPROMPT_TMP to the file it wrote, or empty. cleanup_sysprompt removes it, and every
 # caller must arrange that on EXIT: the file holds the user's memory and must not outlive us.
+# ------------------------------------------------------------------ mcp binding ----
+# A sweater can bind MCP servers, and they reach every project in that sweater and nothing
+# outside it. Isolation is the CLI's own `--strict-mcp-config`, which ignores every other MCP
+# source, so this is a hard boundary rather than a convention, the same way sweater memory is.
+#
+# Two optional files, both in the CLI's own `{"mcpServers": {...}}` shape so a definition can be
+# pasted straight from a vendor's docs:
+#   $ROOT/global/mcp.json      servers every sweater gets
+#   $ROOT/<sweater>/mcp.json   servers only this sweater gets
+#
+# Composition, in this order, and the order is the whole design:
+#   1. global servers enter under their own names
+#   2. a sweater server with the same name REPLACES the global one for this sweater
+#   3. sweater servers are then renamed to <sweater>__<name>
+# Renaming last is what makes both rules true at once. The CLI keys a stored MCP login by server
+# NAME plus URL (measured: one `notion` credential serves four different project directories), so
+# a global server keeping its bare name shares one login everywhere, which is what global means,
+# while a sweater server gets a slot of its own and two sweaters can hold two different accounts
+# on the same provider without ever sharing a token.
+#
+# A sweater with neither file passes no flags at all, so nothing changes for anyone not using it.
+
+# mcp_compose <root> <scope> <out.json> — write the composed config. Returns 1 when there is
+# nothing to bind (caller then passes no MCP flags), 2 when jq is missing or a file is malformed.
+mcp_compose() {
+  local root="$1" scope="$2" out="$3" gfile="$1/global/mcp.json" sfile
+  sfile="$(resolve_scope_dir "$scope" 2>/dev/null || true)/mcp.json"
+  [[ -f "$gfile" || -f "$sfile" ]] || return 1
+  command -v jq >/dev/null 2>&1 || return 2
+  [[ -f "$gfile" ]] || gfile="/dev/null"
+  [[ -f "$sfile" ]] || sfile="/dev/null"
+  jq -n --slurpfile g <(cat "$gfile" 2>/dev/null || echo '{}')         --slurpfile s <(cat "$sfile" 2>/dev/null || echo '{}')         --arg scope "$scope" '
+    ($g[0].mcpServers // {}) as $G
+    | ($s[0].mcpServers // {}) as $S
+    # a sweater name removes the global entry it shadows, then the sweater entries are renamed
+    | { mcpServers:
+        ( ($G | with_entries(select(.key as $k | ($S | has($k)) | not)))
+          + ($S | with_entries(.key = ($scope + "__" + .key))) ) }
+  ' > "$out" 2>/dev/null || return 2
+  # an empty result is the same as having nothing to bind
+  [[ "$(jq -r '.mcpServers | length' "$out" 2>/dev/null || echo 0)" -gt 0 ]] || return 1
+  return 0
+}
+
+# mcp_server_names <file> — space-separated names in a composed config, for the launch banner.
+mcp_server_names() {
+  jq -r '.mcpServers | keys_unsorted | join(" ")' "$1" 2>/dev/null || true
+}
+
 # prepare_sysprompt <prompt> [scope] [root] [claude-bin]
 prepare_sysprompt() {
   local prompt="$1" scope="${2:-}" root="${3:-}" bin="${4:-claude}" limit

@@ -578,17 +578,44 @@ distilled=0
 # The prompt travels as a FILE wherever the CLI takes one, so memory size is never bounded by
 # an argv limit. Older builds fall back to argv and are refused early, with an explanation,
 # rather than being walked into the kernel's own error.
+# Bind this sweater's MCP servers, if it has any. --strict-mcp-config means the session sees
+# exactly these and nothing from the project folder, the user config or anywhere else, so one
+# sweater's Notion or mail can never appear inside another. A sweater with nothing bound passes
+# no flags at all, which is why this is invisible to everyone not using it.
+MCP_ARGS=()
+MCP_FILE=""
+# Defined and armed BEFORE anything can fail, so the composed file cannot outlive a bad exit.
+cleanup_mcp() { if [[ -n "${MCP_FILE:-}" ]]; then rm -f "$MCP_FILE"; fi; MCP_FILE=""; return 0; }
+trap cleanup_mcp EXIT
+if [[ "${GRANDMA_NO_MCP:-0}" != "1" ]]; then
+  MCP_FILE="$(mktemp "${TMPDIR:-/tmp}/grandma-mcp.XXXXXX")" || MCP_FILE=""
+  if [[ -n "$MCP_FILE" ]]; then
+    # `|| _mrc=$?` and not `; _mrc=$?`: under set -e a plain non-zero return kills the script,
+    # so a sweater with no servers would take the whole launch down with it.
+    _mrc=0
+    mcp_compose "$ROOT" "$SCOPE" "$MCP_FILE" || _mrc=$?
+    case "$_mrc" in
+      0) MCP_ARGS=(--mcp-config "$MCP_FILE" --strict-mcp-config)
+         printf '  🧶 mcp: %s (this sweater only)\n' "$(mcp_server_names "$MCP_FILE")" >&2 ;;
+      2) printf '  🧶 mcp: this sweater has servers but they could not be read, launching without them.\n' >&2
+         printf '     check that %s/%s/mcp.json is valid JSON and that jq is installed.\n' "$ROOT" "$SCOPE" >&2
+         rm -f "$MCP_FILE"; MCP_FILE="" ;;
+      *) rm -f "$MCP_FILE"; MCP_FILE="" ;;
+    esac
+  fi
+fi
 prepare_sysprompt "$SYSPROMPT" "$SCOPE" "$ROOT" || exit 1
 # That file holds the whole memory bundle, so it must not survive us. EXIT is what makes it
 # true on EVERY path: HUP and TERM are handled below, but Ctrl+C is not trapped at all, and
 # without this the file was left behind on every interrupted session. EXIT fires for an
 # untrapped SIGINT too, and unlike a trap on INT it does not change what any signal MEANS.
-trap cleanup_sysprompt EXIT
+trap 'cleanup_sysprompt; cleanup_mcp' EXIT
 
-trap 'cleanup_sysprompt; on_hangup' HUP TERM
+trap 'cleanup_sysprompt; cleanup_mcp; on_hangup' HUP TERM
 CLAUDE_RC=0
-claude --name "grandma:$SCOPE${RP_NAME:+/$RP_NAME}" --add-dir "$ROOT" ${PASSTHRU[@]+"${PASSTHRU[@]}"} "${SYSPROMPT_ARGS[@]}" "$INIT" || CLAUDE_RC=$?
+claude --name "grandma:$SCOPE${RP_NAME:+/$RP_NAME}" --add-dir "$ROOT" ${MCP_ARGS[@]+"${MCP_ARGS[@]}"} ${PASSTHRU[@]+"${PASSTHRU[@]}"} "${SYSPROMPT_ARGS[@]}" "$INIT" || CLAUDE_RC=$?
 trap - HUP TERM
 cleanup_sysprompt
+cleanup_mcp
 post_session
 exit "$CLAUDE_RC"

@@ -307,6 +307,30 @@ grep -q 'log.md' "$ENGINE/prompts/capture.md" 2>/dev/null || {
   bad "capture doctrine does not warn against a flat log.md"; bl_ok=0; }
 [[ "$bl_ok" == "1" ]] && pass "bundle transport is file-based, guarded, and logs route to log/<date>.md"
 
+# ---- 18. A bound MCP config is never passed without strict mode ----
+# --mcp-config ADDS servers to whatever the CLI already has. Only --strict-mcp-config makes it
+# replace them. Pass one without the other and a sweater quietly inherits the project folder's
+# servers as well, which is precisely the leak this feature exists to prevent, and it would look
+# like it was working. The two flags must appear together.
+echo "== 18. a sweater's MCP servers cannot leak in from anywhere else =="
+mc_ok=1
+# Comments are stripped first. A note that merely mentions the flag must not be able to satisfy
+# this check, which is the same reason invariant 16 strips them: the first version of this passed
+# happily with the real flag deleted, because the paragraph above it still said the word.
+for _f in "$ENGINE"/lib/*.sh; do
+  case "$(basename "$_f")" in grandma-test.sh) continue ;; esac
+  _code="$(sed 's/#.*$//' "$_f" 2>/dev/null)"
+  case "$_code" in
+    *--mcp-config*)
+      case "$_code" in
+        *--strict-mcp-config*) ;;
+        *) bad "$(basename "$_f"): passes --mcp-config without --strict-mcp-config, so other sources still load"
+           mc_ok=0 ;;
+      esac ;;
+  esac
+done
+[[ "$mc_ok" == "1" ]] && pass "MCP config is only ever passed with strict mode"
+
 echo
 if [[ "$fail" == "0" ]]; then echo "grandma-test: ALL PASS"; else echo "grandma-test: FAILURES ABOVE"; fi
 exit "$fail"

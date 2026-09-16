@@ -136,6 +136,27 @@ project CLAUDE.md   deep per-project instructions            auto-loaded in that
 - `grandma acme billing-api` also drops you into that project so its CLAUDE.md rides along.
 - `grandma` alone shows a picker, including "describe a new sweater" where you explain a new context in plain words and grandma scaffolds it.
 
+### Connections, bound to one sweater
+
+A sweater can own its MCP servers, and they reach every project in that sweater and nothing outside it. Put a Notion workspace on `aarc` and it is there in every Aarc project and in none of your others. Two sweaters can hold two different Notion workspaces, or two different mail accounts, without either one seeing the other.
+
+Servers are declared in the same shape the CLI uses, so a definition can be pasted straight from a vendor's documentation:
+
+```text
+global/mcp.json      servers every sweater gets
+<sweater>/mcp.json   servers only this sweater gets
+```
+
+```json
+{"mcpServers": {"notion": {"type": "http", "url": "https://mcp.notion.com/mcp"}}}
+```
+
+Global servers arrive under their own name and share one login everywhere. A sweater's servers are namespaced to that sweater, which is what gives each one its own stored login, since a login is keyed by server name and address. Name a server in a sweater that also exists globally and the sweater's version replaces it there, leaving the global one untouched for everyone else.
+
+Isolation is the CLI's own `--strict-mcp-config`, not a convention: a bound session sees exactly the composed set and ignores every other source, including whatever is configured in the project folder. A sweater that binds nothing passes no flags at all, so nothing changes until you use this. Turn it off for one run with `GRANDMA_NO_MCP=1`.
+
+Credentials are never written into these files. An OAuth server needs only its address, and the login lives in the CLI's own credential store outside your memory repo. A server that needs a key should read it from the environment rather than carrying it, because your memory home is a git repo you may push.
+
 grandma hands the assembled memory to the CLI as a file rather than on the command line, because a single command-line argument is capped at 128 KB on Linux and the whole command line at about a megabyte on macOS, and a memory home can outgrow either. On a CLI too old to take a file it falls back to the command line, checks the size first, and explains what to shrink instead of leaving you with the shell's `Argument list too long`. Force that older path with `GRANDMA_NO_PROMPT_FILE=1`, cap the one-off capability check with `GRANDMA_PROBE_TIMEOUT` (5 seconds by default), and silence the warning about a mis-tiered log with `GRANDMA_NO_SIZE_WARN=1`.
 
 Memory lives in `GRANDMA_HOME` (default `~/.grandma`), a git repo that belongs to you. The engine never stores your data next to its own code.
