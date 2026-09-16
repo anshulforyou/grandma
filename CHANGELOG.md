@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- New: a sweater can bind its own MCP servers, and they reach every project in that sweater and
+  nothing outside it. Put a Notion workspace on one sweater and it is there in all of that
+  sweater's projects and in none of your others, so two sweaters can hold two different
+  workspaces, or two different mail accounts, without either seeing the other. Declare them in
+  `global/mcp.json` for servers every sweater gets and `<sweater>/mcp.json` for servers only that
+  sweater gets, in the same shape the CLI uses so a definition can be pasted from a vendor's docs.
+  Global servers arrive under their own name and share one login everywhere. A sweater's servers
+  are namespaced to it, which is what gives each its own stored login, since a login is keyed by
+  server name and address. Naming a server in a sweater that also exists globally replaces it
+  there and leaves the global one alone for everyone else. The isolation is the CLI's own strict
+  mode rather than a convention, so a bound session ignores every other source including whatever
+  the project folder has configured. A sweater that binds nothing passes no flags at all, so
+  nothing changes until you use this, and `GRANDMA_NO_MCP=1` turns it off for a run. No credential
+  is ever written into these files: an OAuth server needs only its address, and one that needs a
+  key should read it from the environment, because a memory home is a git repo you may push.
+
 - Fixed: a large memory home could not launch at all. The bundle was handed to the CLI as a single
   command-line argument, and two different kernel limits sit on that, neither having anything to do
   with how much memory is reasonable to load. Linux caps one argument at 128 KB, hardcoded and
