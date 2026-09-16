@@ -5,9 +5,12 @@
 - New: a sweater can bind its own MCP servers, and they reach every project in that sweater and
   nothing outside it. Put a Notion workspace on one sweater and it is there in all of that
   sweater's projects and in none of your others, so two sweaters can hold two different
-  workspaces, or two different mail accounts, without either seeing the other. Declare them in
-  `global/mcp.json` for servers every sweater gets and `<sweater>/mcp.json` for servers only that
-  sweater gets, in the same shape the CLI uses so a definition can be pasted from a vendor's docs.
+  workspaces, or two different mail accounts, without either seeing the other. Bind one with
+  `grandma mcp add <sweater> <name> <url>`, or `grandma mcp add global ...` to reach every sweater,
+  and see what a sweater gets with `grandma mcp list <sweater>`. They are stored as
+  `global/mcp.json` and `<sweater>/mcp.json` in the shape the CLI itself uses, so the files stay
+  hand-editable and a definition can still be pasted from a vendor's docs. A literal credential is
+  refused: `--header` and `--env` take an environment reference like `$MY_TOKEN` and nothing else.
   Global servers arrive under their own name and share one login everywhere. A sweater's servers
   are namespaced to it, which is what gives each its own stored login, since a login is keyed by
   server name and address. Naming a server in a sweater that also exists globally replaces it

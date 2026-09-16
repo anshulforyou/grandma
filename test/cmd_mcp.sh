@@ -58,6 +58,41 @@ assert_contains "servers=<none>" "no MCP flags are passed when nothing is bound"
 assert_contains "strict=no" "strict mode is not switched on for a sweater with no servers"
 
 # ---------------------------------------------------------------------------------------
+section "the command, because nobody should hand-write this file"
+capture env "$GBIN" mcp add globex notion https://mcp.notion.example/mcp
+assert_rc 0 "grandma mcp add binds a server"
+assert_contains "globex__notion" "it says what the server will be called"
+assert_file "$GRANDMA_HOME/globex/mcp.json" "and writes the sweater's file"
+
+capture env "$GBIN" mcp add global gmail https://mail.example/mcp
+assert_rc 0 "a server can be bound for every sweater"
+assert_contains "every sweater" "and it says so"
+
+capture env "$GBIN" mcp list globex
+assert_rc 0 "list shows what a sweater actually gets"
+assert_contains "globex__notion" "including its own servers, under the name they will load as"
+assert_contains "gmail" "and the global ones"
+
+# A memory home is a git repo that may be pushed, so a literal credential must never land in it.
+capture env "$GBIN" mcp add globex corridor https://corridor.example/mcp --header "Authorization: Bearer sk-live-aaaaaaaaaaaaaaaaaaaa"
+assert_rc 1 "a literal secret is refused"
+assert_contains "environment variable" "and it says what to do instead"
+capture jq -e '.mcpServers | has("corridor") | not' "$GRANDMA_HOME/globex/mcp.json"
+assert_rc 0 "the refused server was not written"
+
+capture env "$GBIN" mcp add globex corridor https://corridor.example/mcp --header 'Authorization: Bearer $CORRIDOR_TOKEN'
+assert_rc 0 "an environment reference is accepted"
+
+capture env "$GBIN" mcp add no-such-sweater x https://y.example/mcp
+assert_rc 1 "an unknown sweater is refused rather than silently created"
+
+capture env "$GBIN" mcp remove globex corridor
+assert_rc 0 "remove unbinds a server"
+capture env "$GBIN" mcp remove globex notion
+assert_no_file "$GRANDMA_HOME/globex/mcp.json" "removing the last one leaves no file pretending otherwise"
+rm -f "$GRANDMA_HOME/global/mcp.json"
+
+# ---------------------------------------------------------------------------------------
 section "a sweater's own servers reach it, renamed so its login is its own"
 cat > "$GRANDMA_HOME/globex/mcp.json" <<'EOF'
 {"mcpServers":{"notion":{"type":"http","url":"https://mcp.notion.example/mcp"}}}
