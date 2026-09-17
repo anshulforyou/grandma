@@ -52,6 +52,36 @@ export PATH="$SHIM:$PATH"
 launch() { rm -f "$MCPLOG"; ( "$GBIN" "$@" </dev/null >/dev/null 2>&1 ); cat "$MCPLOG" 2>/dev/null | tr '\n' ' '; }
 
 # ---------------------------------------------------------------------------------------
+section "a local server keeps the flags it was given"
+# `jq --args` treats anything starting with a dash as one of its own options, so passing the
+# command's flags as jq operands made jq fail and an empty args array get written instead.
+capture env "$GBIN" mcp add globex tools -- npx -y some-server --flag
+assert_rc 0 "a stdio server can be bound"
+LAST_OUT="$(jq -c '.mcpServers.tools' "$GRANDMA_HOME/globex/mcp.json")"
+assert_contains '"-y","some-server","--flag"' "its flags are kept, dashes and all"
+capture env "$GBIN" mcp remove globex tools
+rm -f "$GRANDMA_HOME/globex/mcp.json"
+
+section "onboarding a new project gets the sweater's servers too"
+# Onboarding is a working session in that sweater, so it must not be the one path that
+# silently runs without the servers everything else in the sweater has.
+cat > "$GRANDMA_HOME/globex/mcp.json" <<'EOF'
+{"mcpServers":{"notion":{"type":"http","url":"https://mcp.notion.example/mcp"}}}
+EOF
+rm -f "$MCPLOG"
+( "$GBIN" globex a-project-that-does-not-exist </dev/null >/dev/null 2>&1 )
+LAST_OUT="$(cat "$MCPLOG" 2>/dev/null | tr '\n' ' ')"
+assert_contains "globex__notion" "an onboarding session is bound to the sweater's servers"
+assert_contains "strict=yes" "and is isolated the same way a normal launch is"
+rm -f "$GRANDMA_HOME/globex/mcp.json"
+
+section "the verbs are completable, like every other subcommand"
+capture env "$GBIN" completions __mcp_commands
+assert_rc 0 "completions knows the mcp verbs"
+assert_contains "add" "add is offered"
+assert_contains "remove" "remove is offered"
+
+# ---------------------------------------------------------------------------------------
 section "a sweater that binds nothing is untouched"
 LAST_OUT="$(launch globex)"
 assert_contains "servers=<none>" "no MCP flags are passed when nothing is bound"

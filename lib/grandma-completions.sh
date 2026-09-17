@@ -29,6 +29,7 @@ source "$ENGINE/lib/grandma-lib.sh"
 SUBCOMMANDS="init save review search ingest watch knit mcp test doctor completions update version help"
 WATCH_COMMANDS="start tick list status report finish notify-test install-agent"
 KNIT_COMMANDS="share pull list contacts install-agent uninstall-agent"
+MCP_COMMANDS="list add remove"
 
 # _gc_scopes - completable first words: every sweater, then the subcommands.
 _gc_scopes() {
@@ -61,6 +62,11 @@ _gc_knit_commands() {
   printf '%s\n' $KNIT_COMMANDS
 }
 
+# _gc_mcp_commands - emit the verbs accepted by `grandma mcp`.
+_gc_mcp_commands() {
+  printf '%s\n' $MCP_COMMANDS
+}
+
 # _gc_emit_bash - the bash completion script (quoted heredoc: emitted verbatim).
 _gc_emit_bash() {
   cat <<'BASH'
@@ -81,6 +87,8 @@ _grandma_complete() {
         COMPREPLY=( $(compgen -W "$(grandma completions __watch_commands 2>/dev/null)" -- "$cur") ) ;;
       knit)
         COMPREPLY=( $(compgen -W "$(grandma completions __knit_commands 2>/dev/null)" -- "$cur") ) ;;
+      mcp)
+        COMPREPLY=( $(compgen -W "$(grandma completions __mcp_commands 2>/dev/null)" -- "$cur") ) ;;
       *)
         COMPREPLY=( $(compgen -W "$(grandma completions __projects "${COMP_WORDS[1]}" 2>/dev/null | cut -f1)" -- "$cur") ) ;;
     esac
@@ -134,6 +142,9 @@ _grandma_complete() {
       knit)
         knit_commands=(${(f)"$(grandma completions __knit_commands 2>/dev/null)"})
         compadd -a knit_commands ;;
+      mcp)
+        mcp_commands=(${(f)"$(grandma completions __mcp_commands 2>/dev/null)"})
+        compadd -a mcp_commands ;;
       *)
         lines=(${(f)"$(grandma completions __projects ${words[2]} 2>/dev/null)"})
         local l
@@ -172,5 +183,6 @@ case "${1:-}" in
   __projects)  shift; _gc_projects "${1:-}" ;;
   __watch_commands) _gc_watch_commands ;;
   __knit_commands)  _gc_knit_commands ;;
+  __mcp_commands)   _gc_mcp_commands ;;
   *)           echo "usage: grandma completions <bash|zsh|fish>" >&2; exit 2 ;;
 esac

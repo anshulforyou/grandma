@@ -72,8 +72,14 @@ cmd_add() {
       fi ;;
     stdio)
       [[ ${#cmdargs[@]} -gt 0 ]] || die "for a local server, put the command after --: grandma mcp add $target $name -- npx thing"
-      entry="$(jq -n --arg c "${cmdargs[0]}" --args '{type:"stdio", command:$c, args:$ARGS.positional}' \
-                 "${cmdargs[@]:1}" 2>/dev/null || jq -n --arg c "${cmdargs[0]}" '{type:"stdio", command:$c, args:[]}')"
+      # Build the args array through stdin, not as jq operands. `jq --args` reads anything
+      # starting with a dash as one of its OWN options, so `-- npx -y pkg --flag` made jq fail
+      # and the fallback wrote an empty array, dropping the flags without a word.
+      local args_json='[]'
+      if [[ ${#cmdargs[@]} -gt 1 ]]; then
+        args_json="$(printf '%s\n' "${cmdargs[@]:1}" | jq -R . | jq -s .)"
+      fi
+      entry="$(jq -n --arg c "${cmdargs[0]}" --argjson a "$args_json" '{type:"stdio", command:$c, args:$a}')"
       if [[ ${#envv[@]} -gt 0 ]]; then
         entry="$(printf '%s\n' "${envv[@]}" | jq -R 'split("=") | {(.[0]): (.[1:]|join("="))}' \
           | jq -s --argjson e "$entry" 'add as $v | $e + {env:$v}')"
