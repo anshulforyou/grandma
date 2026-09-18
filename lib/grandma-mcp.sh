@@ -40,65 +40,41 @@ reject_secret() {
      Memory is a git repo you may push, so grandma will not write a credential into it."
 }
 
-GOOGLE_CONSOLE_URL="https://console.cloud.google.com/apis/credentials"
-
 # google_needs_own_client <url> — true for a provider that will not let the CLI register itself.
 google_needs_own_client() {
   case "$1" in *googleapis.com*|*google.com*) return 0 ;; esac
   return 1
 }
 
-# guided_google_setup <target> <name> <url> — walk someone through making the one thing Google
-# insists on. Returns the client ID on stdout, empty if they backed out.
+# google_cannot_sign_in <target> <name> — say why this will not work, and let someone decide.
 #
-# Interactive only. A scripted `mcp add` must never block on a prompt, so the caller checks the
-# terminal first and falls back to printing what to do.
-guided_google_setup() {
-  local target="$1" name="$2" ans cid
+# Google requires a client secret at the token exchange. The CLI has nowhere to put one for a
+# server passed in a config file: its oauth block accepts clientId, callbackPort, scopes and
+# authServerMetadataUrl and no secret, MCP_CLIENT_SECRET is not consulted on that path, and the
+# secret only attaches to servers registered with `claude mcp add`, which are exactly the ones a
+# sweater's isolation shuts out. So the browser consent succeeds and the token exchange is then
+# refused by Google with "client_secret is missing". Verified against the CLI, not inferred.
+#
+# Returns 0 to go ahead and bind anyway, 1 to stop.
+google_cannot_sign_in() {
+  local target="$1" name="$2" ans
   {
-    printf '\n  Google will not let the CLI introduce itself, so a sign-in would fail before you ever\n'
-    printf '  see a consent screen. Every other provider handles that automatically. Google does not.\n\n'
-    printf '  What that means: to keep a separate %s inbox per sweater, you make one set of\n' "$name"
-    printf '  credentials once, on this machine. It covers every sweater from then on, and each\n'
-    printf '  sweater still signs in to its own account.\n\n'
-    printf '  Press Enter to open the Google page, or s to skip and do it later: '
+    printf '\n  %sThis one cannot be signed in to yet%s, and it is worth knowing before you spend time on it.\n\n' "$C_WARN" "$C_RESET"
+    printf '  Google wants a client secret when it hands over the token. A server bound to a sweater\n'
+    printf '  is passed to the CLI in a config file, and that file has no field for a secret, so the\n'
+    printf '  consent screen succeeds and the step straight after it is refused. Making OAuth\n'
+    printf '  credentials of your own does not change it: there is nowhere to put the secret.\n\n'
+    printf '  What does work today:\n'
+    printf '    - leave one sweater with nothing bound. Your account connector still works there,\n'
+    printf '      so mail stays reachable, just not split per sweater.\n'
+    printf '    - bind the providers that sign in on their own, which is most of them.\n\n'
   } >&2
+  [[ -t 0 ]] || { printf '  Binding it anyway. It will show as needing authentication.\n\n' >&2; return 0; }
+  printf '  Bind %s to %s anyway? [y/N] ' "$name" "$target" >&2
   IFS= read -r ans || true
-  case "$ans" in [Ss]*) printf ''; return 1 ;; esac
-
-  if open_url "$GOOGLE_CONSOLE_URL"; then
-    printf '\n  Opened %s\n' "$GOOGLE_CONSOLE_URL" >&2
-  else
-    printf '\n  Open this page: %s\n' "$GOOGLE_CONSOLE_URL" >&2
-  fi
-  {
-    printf '\n  On that page:\n'
-    printf '    1. Create credentials  ->  OAuth client ID\n'
-    printf '    2. Application type:   %sDesktop app%s      <- this exact type matters\n' "$C_KEY" "$C_RESET"
-    printf '    3. Name it anything, then Create\n'
-    printf '    4. Copy the client ID and the client secret it shows you\n\n'
-    printf '  %sDesktop app%s is the part to get right. That type accepts any local port, so there is\n' "$C_KEY" "$C_RESET"
-    printf '  no redirect address to fill in anywhere.\n\n'
-    printf '  On the consent screen, the audience setting decides whether this keeps working:\n'
-    printf '    - a Google Workspace account on your own domain: choose %sInternal%s. Nothing to verify,\n' "$C_KEY" "$C_RESET"
-    printf '      and the sign-in lasts.\n'
-    printf '    - a personal account: choose %sExternal%s and add yourself under %sTest users%s, or Google\n' "$C_KEY" "$C_RESET" "$C_KEY" "$C_RESET"
-    printf '      blocks the sign-in outright. %sNote that this expires after 7 days%s and you will\n' "$C_WARN" "$C_RESET"
-    printf '      have to sign in again, because Google does that to unverified apps.\n\n'
-    printf '  An %sInternal%s client only admits accounts on %sTHAT domain%s. A second account on a\n' "$C_KEY" "$C_RESET" "$C_WARN" "$C_RESET"
-    printf '  different domain needs its own client, made inside that organisation. grandma keeps\n'
-    printf '  a client per sweater, so that is the shape it expects:\n'
-    printf '    grandma mcp add <other-sweater> %s <url> --client-id <client-from-that-domain>\n\n' "$name"
-    printf '  %sClient ID%s (paste, or Enter to stop): ' "$C_KEY" "$C_RESET"
-  } >&2
-  IFS= read -r cid || true
-  [[ -n "$cid" ]] || { printf ''; return 1; }
-  case "$cid" in
-    *.apps.googleusercontent.com) ;;
-    *) printf '\n  That does not look like a Google client ID. They end in .apps.googleusercontent.com\n' >&2
-       printf ''; return 1 ;;
-  esac
-  printf '%s' "$cid"
+  case "$ans" in [Yy]*) return 0 ;; esac
+  printf '  Nothing bound.\n\n' >&2
+  return 1
 }
 
 cmd_add() {
@@ -119,18 +95,9 @@ cmd_add() {
       *) url="$1"; shift ;;
     esac
   done
-  # A provider that refuses dynamic registration needs a client of your own. Rather than tell
-  # someone to go and read about OAuth, walk them through it and open the page.
-  if [[ -z "$client_id" ]] && google_needs_own_client "$url"; then
-    if [[ -t 0 ]]; then
-      client_id="$(guided_google_setup "$target" "$name" "$url" || true)"
-    fi
-    if [[ -z "$client_id" ]]; then
-      {
-        printf '\n  %sNote%s: signing in to this provider will fail until it has credentials of its own.\n' "$C_WARN" "$C_RESET"
-        printf '  Make a Desktop app OAuth client at %s and re-run with --client-id.\n\n' "$GOOGLE_CONSOLE_URL"
-      } >&2
-    fi
+  # Google cannot complete a sign-in for a sweater-bound server. Say so before anyone invests in it.
+  if google_needs_own_client "$url"; then
+    google_cannot_sign_in "$target" "$name" || return 0
   fi
 
   local dir; dir="$(target_dir "$target")"

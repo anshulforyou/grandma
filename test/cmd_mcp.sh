@@ -52,13 +52,21 @@ export PATH="$SHIM:$PATH"
 launch() { rm -f "$MCPLOG"; ( "$GBIN" "$@" </dev/null >/dev/null 2>&1 ); cat "$MCPLOG" 2>/dev/null | tr '\n' ' '; }
 
 # ---------------------------------------------------------------------------------------
-section "a provider needing its own client is walked through, not handed homework"
-# Interactive only, so it needs a real terminal. Piping input would make stdin a pipe, the
-# terminal check would fail, and the guided flow would never run at all: the same trap that
-# stops a piped installer opening a TUI. Drive a pty and type into it instead.
+section "a provider that cannot finish a sign-in says so instead of wasting an hour"
+# Google needs a client secret at the token exchange and the CLI has nowhere to put one for a
+# server passed in a config file, so the consent screen succeeds and the next step is refused.
+# Walking someone through making credentials would be worse than useless: it cannot work.
+capture env "$GBIN" mcp add globex mail https://gmailmcp.googleapis.com/mcp/v1
+assert_rc 0 "with no terminal it does not hang on the question"
+assert_contains "cannot be signed in to yet" "it says the sign-in cannot complete"
+assert_contains "nowhere to put the secret" "and why, so nobody goes hunting for a setting"
+assert_contains "account connector still works" "and what to do instead"
+assert_not_contains "$(printf '\033')" "no escape codes when the output is not a terminal"
+rm -f "$GRANDMA_HOME/globex/mcp.json"
+
+# Interactive it defaults to not binding, since a bound server that cannot authenticate just
+# shows as broken in every session.
 OPENBIN="$TMP/openbin"; mkdir -p "$OPENBIN"
-printf '#!/bin/sh\necho "[opened $1]"\n' > "$OPENBIN/open"; chmod +x "$OPENBIN/open"
-cp "$OPENBIN/open" "$OPENBIN/xdg-open"
 cat > "$TMP/drive.py" <<'DRIVE'
 import os, pty, time, select, sys
 env = dict(os.environ)
@@ -75,43 +83,26 @@ def pump(sec):
             r, _, _ = select.select([fd], [], [], 0.2)
             if r: buf += os.read(fd, 65536)
         except OSError: return
-for keys in (b"\r", b"1234567890.apps.googleusercontent.com\r", b"n\r"):
+for keys in (b"\r",):
     pump(2.5)
     try: os.write(fd, keys)
     except OSError: break
-pump(2.5)
+pump(2.0)
 try: os.kill(pid, 9)
 except Exception: pass
 sys.stdout.write(buf.decode("utf-8", "replace"))
 DRIVE
 if command -v python3 >/dev/null 2>&1; then
   RAW="$(python3 "$TMP/drive.py" "$GBIN mcp add globex mail https://gmailmcp.googleapis.com/mcp/v1" "$OPENBIN" 2>&1 || true)"
-  # colour is asserted on the raw bytes; the prose checks run on a stripped copy, because a
-  # highlighted word sits in the middle of some of those sentences
   LAST_OUT="$RAW"
-  assert_contains "38;5;211mDesktop app" "on a terminal the deciding words are highlighted"
+  assert_contains "33m" "on a terminal the warning is highlighted"
   LAST_OUT="$(printf '%s' "$RAW" | sed 's/'"$(printf '\033')"'\[[0-9;]*m//g')"
-  assert_contains "Desktop app" "it names the one setting that has to be right"
-  assert_contains "Internal" "it says which audience to pick, which is what Google blocks on"
-  assert_contains "only admits accounts on THAT domain" "and warns that an internal client is one domain only"
-  assert_contains "console.cloud.google.com" "it points at the page"
-  assert_contains "Opened https://console.cloud.google.com" "it opens the page rather than telling you to"
-  LAST_OUT="$(jq -r '.mcpServers.mail.oauth.clientId // "none"' "$GRANDMA_HOME/globex/mcp.json" 2>/dev/null)"
-  assert_contains "1234567890.apps.googleusercontent.com" "the client ID it collected is what gets bound"
-  LAST_OUT="$(cat "$GRANDMA_HOME/globex/mcp.json" 2>/dev/null)"
-  assert_not_contains "ecret" "no secret is written, whatever was typed"
-  rm -f "$GRANDMA_HOME/globex/mcp.json"
+  assert_contains "anyway?" "it asks rather than binding something that cannot work"
+  assert_contains "Nothing bound" "and pressing Enter declines"
+  assert_no_file "$GRANDMA_HOME/globex/mcp.json" "so nothing is written"
 else
-  skip "python3 missing — the guided flow was not exercised"
+  skip "python3 missing — the interactive refusal was not exercised"
 fi
-
-capture env "$GBIN" mcp add globex mail https://gmailmcp.googleapis.com/mcp/v1
-assert_rc 0 "with no terminal it binds rather than hanging on a prompt"
-assert_contains "credentials of its own" "and says what will be needed"
-# Colour is for a person reading a terminal. Piped or redirected output must stay plain, or
-# escape codes end up in logs and in whatever reads us.
-assert_not_contains "$(printf '\033')" "no escape codes when the output is not a terminal"
-rm -f "$GRANDMA_HOME/globex/mcp.json"
 
 # ---------------------------------------------------------------------------------------
 section "a provider that refuses dynamic registration can still be bound"
@@ -132,7 +123,7 @@ capture env "$GBIN" mcp add globex mail3 https://example.com/mcp --client-id abc
 assert_rc 1 "a non-numeric port is refused"
 
 capture env "$GBIN" mcp add globex mail4 https://gmailmcp.googleapis.com/mcp/v1
-assert_contains "credentials of its own" "binding a google endpoint without a client id says so"
+assert_contains "cannot be signed in to yet" "binding a google endpoint says the sign-in cannot complete"
 rm -f "$GRANDMA_HOME/globex/mcp.json"
 
 section "the first binding says what it changes"

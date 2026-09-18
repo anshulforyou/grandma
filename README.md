@@ -149,21 +149,11 @@ grandma mcp remove acme notion
 
 Then `grandma acme` and sign in once with `/mcp` inside the session.
 
-Most providers handle that sign-in themselves. A few will not let the CLI register at all, and Google is one, so a Gmail server needs credentials of your own. grandma notices and walks you through it rather than leaving you to read about OAuth: it explains why, opens the right page when you press Enter, tells you which option to pick, takes the client ID, and offers to finish the sign-in there and then.
+Most providers handle that sign-in themselves, and those just work: bind, launch, pick your account.
 
-```sh
-grandma mcp add acme mail https://gmailmcp.googleapis.com/mcp/v1
-```
+One category does not, and Google is it. Those providers want a client secret when they hand over the token, and a server bound to a sweater reaches the CLI through a config file that has no field for a secret. The consent screen succeeds and the step straight after it is refused. Making OAuth credentials of your own does not help, because there is nowhere to put the secret. grandma says so when you try, rather than letting you find out after an hour in a cloud console. Until that changes, keep one sweater with nothing bound and your account connectors keep working there.
 
-Google gates that consent screen, and which option you pick decides whether the sign-in keeps working. On a Workspace account of your own domain, choose Internal: nothing to verify and it lasts. On a personal account, choose External and add yourself under Test users, or the sign-in is refused outright, and be aware Google expires an unverified app's access after seven days so you will sign in again each week.
-
-An Internal client only admits accounts on its own domain, so a second account elsewhere needs its own client made inside that organisation. That is the shape grandma already expects, since it keeps a client per sweater: bind one domain's client to one sweater and the other's to another, and each signs in to its own account permanently.
-
-You make those credentials once on a machine, not once per sweater. The client ID is stored with the server. The secret is not: grandma asks for it when you sign in, hands it to that one session, and keeps no copy. Each sweater still signs in separately, so `acme__mail` and `globex__mail` can be two different accounts. A local server goes after a `--`, as in `grandma mcp add acme tools -- npx my-server`.
-
-It is stored as `global/mcp.json` and `<sweater>/mcp.json` in the shape the CLI itself uses, so the files stay hand-editable and a definition can be pasted from a vendor's documentation.
-
-Global servers arrive under their own name and share one login everywhere. A sweater's servers are namespaced to that sweater, which is what gives each one its own stored login, since a login is keyed by server name and address. Name a server in a sweater that also exists globally and the sweater's version replaces it there, leaving the global one untouched for everyone else.
+`--client-id` and `--callback-port` are still there for a provider that needs a pre-registered client but no secret.
 
 Isolation is the CLI's own `--strict-mcp-config`, not a convention: a bound session sees exactly the composed set and ignores every other source, including whatever is configured in the project folder. That cuts both ways, so it is worth knowing before you start: the first server you bind to a sweater also shuts that sweater's account connectors out, and grandma says so at the time. Anything you want everywhere goes in `global/mcp.json`. A sweater that binds nothing passes no flags at all, so nothing changes until you use this. Turn it off for one run with `GRANDMA_NO_MCP=1`.
 
