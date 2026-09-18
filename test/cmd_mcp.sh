@@ -52,57 +52,23 @@ export PATH="$SHIM:$PATH"
 launch() { rm -f "$MCPLOG"; ( "$GBIN" "$@" </dev/null >/dev/null 2>&1 ); cat "$MCPLOG" 2>/dev/null | tr '\n' ' '; }
 
 # ---------------------------------------------------------------------------------------
-section "a provider that cannot finish a sign-in says so instead of wasting an hour"
-# Google needs a client secret at the token exchange and the CLI has nowhere to put one for a
-# server passed in a config file, so the consent screen succeeds and the next step is refused.
-# Walking someone through making credentials would be worse than useless: it cannot work.
-capture env "$GBIN" mcp add globex mail https://gmailmcp.googleapis.com/mcp/v1
-assert_rc 0 "with no terminal it does not hang on the question"
-assert_contains "cannot be signed in to yet" "it says the sign-in cannot complete"
-assert_contains "nowhere to put the secret" "and why, so nobody goes hunting for a setting"
-assert_contains "account connector still works" "and what to do instead"
+section "a provider needing a deposited secret gets the exact command, under the right name"
+# Some providers want a client secret at the token exchange. A sweater config carries a client
+# ID but has no field for a secret: it is looked up in the CLI's own store, under the server
+# name plus a hash of its config, and only `claude mcp add --client-secret` writes there. So the
+# secret is deposited once under the name the sweater composes, and the sweater's copy finds it.
+capture env "$GBIN" mcp add globex gmail https://gmailmcp.googleapis.com/mcp/v1
+assert_rc 0 "it binds and explains the extra step"
+assert_contains "One more step for this provider" "it flags the extra step"
+assert_contains "claude mcp add --scope user --transport http globex__gmail" "and gives the command under the composed name, which is what the lookup keys on"
+assert_contains "gmailmcp.googleapis.com" "with the same url, since the key hashes it"
+assert_contains "ignored" "and says the registration does not weaken the sweater"
 assert_not_contains "$(printf '\033')" "no escape codes when the output is not a terminal"
 rm -f "$GRANDMA_HOME/globex/mcp.json"
 
-# Interactive it defaults to not binding, since a bound server that cannot authenticate just
-# shows as broken in every session.
-OPENBIN="$TMP/openbin"; mkdir -p "$OPENBIN"
-cat > "$TMP/drive.py" <<'DRIVE'
-import os, pty, time, select, sys
-env = dict(os.environ)
-env["PATH"] = sys.argv[2] + ":" + env["PATH"]
-pid, fd = pty.fork()
-if pid == 0:
-    os.execve("/bin/bash", ["bash", "-c", sys.argv[1]], env)
-buf = b""
-def pump(sec):
-    global buf
-    end = time.time() + sec
-    while time.time() < end:
-        try:
-            r, _, _ = select.select([fd], [], [], 0.2)
-            if r: buf += os.read(fd, 65536)
-        except OSError: return
-for keys in (b"\r",):
-    pump(2.5)
-    try: os.write(fd, keys)
-    except OSError: break
-pump(2.0)
-try: os.kill(pid, 9)
-except Exception: pass
-sys.stdout.write(buf.decode("utf-8", "replace"))
-DRIVE
-if command -v python3 >/dev/null 2>&1; then
-  RAW="$(python3 "$TMP/drive.py" "$GBIN mcp add globex mail https://gmailmcp.googleapis.com/mcp/v1" "$OPENBIN" 2>&1 || true)"
-  LAST_OUT="$RAW"
-  assert_contains "33m" "on a terminal the warning is highlighted"
-  LAST_OUT="$(printf '%s' "$RAW" | sed 's/'"$(printf '\033')"'\[[0-9;]*m//g')"
-  assert_contains "anyway?" "it asks rather than binding something that cannot work"
-  assert_contains "Nothing bound" "and pressing Enter declines"
-  assert_no_file "$GRANDMA_HOME/globex/mcp.json" "so nothing is written"
-else
-  skip "python3 missing — the interactive refusal was not exercised"
-fi
+capture env "$GBIN" mcp add globex notion https://mcp.notion.example/mcp
+assert_not_contains "One more step" "a provider that signs in on its own is not bothered with any of that"
+rm -f "$GRANDMA_HOME/globex/mcp.json"
 
 # ---------------------------------------------------------------------------------------
 section "a provider that refuses dynamic registration can still be bound"
@@ -123,7 +89,7 @@ capture env "$GBIN" mcp add globex mail3 https://example.com/mcp --client-id abc
 assert_rc 1 "a non-numeric port is refused"
 
 capture env "$GBIN" mcp add globex mail4 https://gmailmcp.googleapis.com/mcp/v1
-assert_contains "cannot be signed in to yet" "binding a google endpoint says the sign-in cannot complete"
+assert_contains "One more step" "binding a google endpoint names the one-off deposit it needs"
 rm -f "$GRANDMA_HOME/globex/mcp.json"
 
 section "the first binding says what it changes"

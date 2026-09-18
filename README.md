@@ -151,9 +151,17 @@ Then `grandma acme` and sign in once with `/mcp` inside the session.
 
 Most providers handle that sign-in themselves, and those just work: bind, launch, pick your account.
 
-One category does not, and Google is it. Those providers want a client secret when they hand over the token, and a server bound to a sweater reaches the CLI through a config file that has no field for a secret. The consent screen succeeds and the step straight after it is refused. Making OAuth credentials of your own does not help, because there is nowhere to put the secret. grandma says so when you try, rather than letting you find out after an hour in a cloud console. Until that changes, keep one sweater with nothing bound and your account connectors keep working there.
+A few want a client secret when they hand over the token, and Google is one. A sweater's servers reach the CLI in a config file that carries a client ID but has no field for a secret, so the secret is deposited once, under the name the server loads as:
 
-`--client-id` and `--callback-port` are still there for a provider that needs a pre-registered client but no secret.
+```sh
+claude mcp add --scope user --transport http acme__gmail \
+  https://gmailmcp.googleapis.com/mcp/v1 \
+  --client-id <your-client-id> --client-secret
+```
+
+grandma prints that command, filled in, when you bind such a provider. The registration changes nothing about isolation, since a bound sweater ignores it; it only leaves the secret where the sign-in can find it. After that, `grandma acme` and `/mcp` signs in normally and stays signed in.
+
+Credentials for those come from the provider. For Google that means an OAuth client of your own, and if the consent screen offers Internal for your own Workspace domain, take it: nothing to verify and it lasts, though an Internal client only admits accounts on that one domain, so a second domain needs its own client bound to its own sweater.
 
 Isolation is the CLI's own `--strict-mcp-config`, not a convention: a bound session sees exactly the composed set and ignores every other source, including whatever is configured in the project folder. That cuts both ways, so it is worth knowing before you start: the first server you bind to a sweater also shuts that sweater's account connectors out, and grandma says so at the time. Anything you want everywhere goes in `global/mcp.json`. A sweater that binds nothing passes no flags at all, so nothing changes until you use this. Turn it off for one run with `GRANDMA_NO_MCP=1`.
 

@@ -46,35 +46,30 @@ google_needs_own_client() {
   return 1
 }
 
-# google_cannot_sign_in <target> <name> — say why this will not work, and let someone decide.
+# needs_secret_deposit <target> <name> <url> — some providers want a client secret when they
+# hand over the token, and Google is one. A sweater's servers reach the CLI in a config file,
+# which carries a client ID but has no field for a secret. The secret is looked up separately,
+# in the CLI's own credential store, under the server name plus a hash of its config.
 #
-# Google requires a client secret at the token exchange. The CLI has nowhere to put one for a
-# server passed in a config file: its oauth block accepts clientId, callbackPort, scopes and
-# authServerMetadataUrl and no secret, MCP_CLIENT_SECRET is not consulted on that path, and the
-# secret only attaches to servers registered with `claude mcp add`, which are exactly the ones a
-# sweater's isolation shuts out. So the browser consent succeeds and the token exchange is then
-# refused by Google with "client_secret is missing". Verified against the CLI, not inferred.
-#
-# Returns 0 to go ahead and bind anyway, 1 to stop.
-google_cannot_sign_in() {
-  local target="$1" name="$2" ans
+# Only `claude mcp add --client-secret` writes there. So the secret is deposited once under the
+# SAME name grandma composes, and the sweater's copy then finds it. That registration changes
+# nothing about isolation, since --strict-mcp-config ignores it; it exists only to leave the
+# secret where the lookup can reach it. Verified end to end: both entries resolved to one key.
+needs_secret_deposit() {
+  local target="$1" name="$2" url="$3"
+  local full="${target}__${name}"
+  [[ "$target" == "global" ]] && full="$name"
   {
-    printf '\n  %sThis one cannot be signed in to yet%s, and it is worth knowing before you spend time on it.\n\n' "$C_WARN" "$C_RESET"
-    printf '  Google wants a client secret when it hands over the token. A server bound to a sweater\n'
-    printf '  is passed to the CLI in a config file, and that file has no field for a secret, so the\n'
-    printf '  consent screen succeeds and the step straight after it is refused. Making OAuth\n'
-    printf '  credentials of your own does not change it: there is nowhere to put the secret.\n\n'
-    printf '  What does work today:\n'
-    printf '    - leave one sweater with nothing bound. Your account connector still works there,\n'
-    printf '      so mail stays reachable, just not split per sweater.\n'
-    printf '    - bind the providers that sign in on their own, which is most of them.\n\n'
+    printf '\n  %sOne more step for this provider%s, and it is a one-off.\n\n' "$C_WARN" "$C_RESET"
+    printf '  It wants a client secret when it hands over the token, and a sweater config cannot\n'
+    printf '  carry one. Deposit it once under the name this server will load as:\n\n'
+    printf '    %sclaude mcp add --scope user --transport http %s \\%s\n' "$C_KEY" "$full" "$C_RESET"
+    printf '      %s \\\n' "$url"
+    printf '      --client-id <your-client-id> --client-secret\n\n'
+    printf '  It will prompt for the secret. Nothing else changes: that registration is ignored\n'
+    printf '  when the sweater loads, it just leaves the secret where the sign-in can find it.\n'
+    printf '  Then: grandma %s, and /mcp to sign in.\n\n' "$target"
   } >&2
-  [[ -t 0 ]] || { printf '  Binding it anyway. It will show as needing authentication.\n\n' >&2; return 0; }
-  printf '  Bind %s to %s anyway? [y/N] ' "$name" "$target" >&2
-  IFS= read -r ans || true
-  case "$ans" in [Yy]*) return 0 ;; esac
-  printf '  Nothing bound.\n\n' >&2
-  return 1
 }
 
 cmd_add() {
@@ -95,11 +90,6 @@ cmd_add() {
       *) url="$1"; shift ;;
     esac
   done
-  # Google cannot complete a sign-in for a sweater-bound server. Say so before anyone invests in it.
-  if google_needs_own_client "$url"; then
-    google_cannot_sign_in "$target" "$name" || return 0
-  fi
-
   local dir; dir="$(target_dir "$target")"
   mkdir -p "$dir"
   local f="$dir/mcp.json"
@@ -164,6 +154,7 @@ cmd_add() {
     [[ "$first_binding" == "1" ]] && \
       printf '\n  %snote%s: this is the first server bound to %s, so from now on %s sessions see only\n        the servers bound here. Your account connectors (Gmail, Drive, Calendar) are not\n        among them. Put anything you want everywhere under: grandma mcp add global ...\n' "$C_WARN" "$C_RESET" "$target" "$target" >&2
     printf '\n  next:  grandma %s        then /mcp in the session to sign in the first time\n' "$target" >&2
+    google_needs_own_client "$url" && needs_secret_deposit "$target" "$name" "$url"
     # A client of your own also means a secret, and the secret is the one thing grandma will not
     # keep. Take it here, hand it to the session that needs it, and let it go when that exits.
     if [[ -n "$client_id" && -t 0 ]]; then
