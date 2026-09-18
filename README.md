@@ -157,6 +157,8 @@ grandma mcp add acme mail https://gmailmcp.googleapis.com/mcp/v1
 
 Google gates that consent screen, and which option you pick decides whether the sign-in keeps working. On a Workspace account of your own domain, choose Internal: nothing to verify and it lasts. On a personal account, choose External and add yourself under Test users, or the sign-in is refused outright, and be aware Google expires an unverified app's access after seven days so you will sign in again each week.
 
+An Internal client only admits accounts on its own domain, so a second account elsewhere needs its own client made inside that organisation. That is the shape grandma already expects, since it keeps a client per sweater: bind one domain's client to one sweater and the other's to another, and each signs in to its own account permanently.
+
 You make those credentials once on a machine, not once per sweater. The client ID is stored with the server. The secret is not: grandma asks for it when you sign in, hands it to that one session, and keeps no copy. Each sweater still signs in separately, so `acme__mail` and `globex__mail` can be two different accounts. A local server goes after a `--`, as in `grandma mcp add acme tools -- npx my-server`.
 
 It is stored as `global/mcp.json` and `<sweater>/mcp.json` in the shape the CLI itself uses, so the files stay hand-editable and a definition can be pasted from a vendor's documentation.

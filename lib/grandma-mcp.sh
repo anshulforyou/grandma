@@ -80,11 +80,15 @@ guided_google_setup() {
     printf '  Desktop app is the part to get right. That type accepts any local port, so there is\n'
     printf '  no redirect address to fill in anywhere.\n\n'
     printf '  On the consent screen, the audience setting decides whether this keeps working:\n'
-    printf '    - a Google Workspace account (your own domain): choose Internal. Nothing to verify,\n'
+    printf '    - a Google Workspace account on your own domain: choose Internal. Nothing to verify,\n'
     printf '      and the sign-in lasts.\n'
     printf '    - a personal account: choose External and add yourself under Test users, or Google\n'
     printf '      blocks the sign-in outright. Note that this expires after 7 days and you will\n'
     printf '      have to sign in again, because Google does that to unverified apps.\n\n'
+    printf '  An Internal client only admits accounts on THAT domain. A second account on a\n'
+    printf '  different domain needs its own client, made inside that organisation. grandma keeps\n'
+    printf '  a client per sweater, so that is the shape it expects:\n'
+    printf '    grandma mcp add <other-sweater> %s <url> --client-id <client-from-that-domain>\n\n' "$name"
     printf '  Client ID (paste, or Enter to stop): '
   } >&2
   IFS= read -r cid || true
