@@ -151,13 +151,13 @@ Then `grandma acme` and sign in once with `/mcp` inside the session.
 
 Most providers handle that sign-in themselves, and those just work: bind, launch, pick your account.
 
-A few want a client secret when they hand over the token, and Google is one. grandma asks for it once and hands it to the CLI itself, so there is nothing to copy:
+A few need credentials of your own, and Google is one. Bind it the same way and grandma walks the rest:
 
 ```sh
-grandma mcp add acme gmail https://gmailmcp.googleapis.com/mcp/v1 --client-id <your-client-id>
+grandma mcp add acme gmail https://gmailmcp.googleapis.com/mcp/v1
 ```
 
-It binds, asks for the secret without echoing it, and deposits it under the name the server loads as. grandma keeps no copy. After that, `grandma acme` and `/mcp` signs in normally and stays signed in.
+It opens Google's credentials page, tells you which client type to pick and which audience setting matters, takes the client ID and the secret, and does the deposit itself. grandma keeps no copy of the secret. After that, `grandma acme` and `/mcp` signs in normally and stays signed in. Pass `--client-id` if you already have one and it skips straight to the secret.
 
 Credentials for those come from the provider. For Google that means an OAuth client of your own, and if the consent screen offers Internal for your own Workspace domain, take it: nothing to verify and it lasts, though an Internal client only admits accounts on that one domain, so a second domain needs its own client bound to its own sweater.
 

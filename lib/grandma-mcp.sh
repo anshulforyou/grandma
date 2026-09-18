@@ -41,6 +41,38 @@ reject_secret() {
 }
 
 
+# collect_google_client <name> — open the page and take the client ID off them. Returns it on
+# stdout, empty if they backed out. Interactive only: a scripted add must not stop on a prompt.
+collect_google_client() {
+  local name="$1" ans cid
+  local url="https://console.cloud.google.com/apis/credentials"
+  {
+    printf '\n  %s needs an OAuth client of your own, once per machine.\n' "$name"
+    printf '  Press Enter to open Google, or s to skip: '
+  } >&2
+  IFS= read -r ans || true
+  case "$ans" in [Ss]*) printf ''; return 1 ;; esac
+  if open_url "$url"; then printf '\n  Opened %s\n\n' "$url" >&2
+  else printf '\n  Open %s\n\n' "$url" >&2; fi
+  {
+    printf '    1. Create credentials  ->  OAuth client ID\n'
+    printf '    2. Application type:   %sDesktop app%s\n' "$C_KEY" "$C_RESET"
+    printf '    3. Create, then copy the client ID and secret\n\n'
+    printf '  If it asks about the consent screen: %sInternal%s for your own Workspace domain,\n' "$C_KEY" "$C_RESET"
+    printf '  otherwise %sExternal%s and add yourself under %sTest users%s (%sthat one expires weekly%s).\n\n' \
+      "$C_KEY" "$C_RESET" "$C_KEY" "$C_RESET" "$C_WARN" "$C_RESET"
+    printf '  Client ID: '
+  } >&2
+  IFS= read -r cid || true
+  [[ -n "$cid" ]] || { printf ''; return 1; }
+  case "$cid" in
+    *.apps.googleusercontent.com) ;;
+    *) printf '\n  Google client IDs end in .apps.googleusercontent.com. Nothing bound.\n\n' >&2
+       printf ''; return 1 ;;
+  esac
+  printf '%s' "$cid"
+}
+
 # deposit_secret <full-name> <url> <client-id> — some providers want a client secret at the
 # token exchange. A sweater's config carries a client ID but has no field for a secret: the CLI
 # looks that up in its OWN credential store, keyed by server name plus a hash of the config, and
@@ -83,6 +115,14 @@ cmd_add() {
       *) url="$1"; shift ;;
     esac
   done
+  # A provider that cannot register the CLI itself needs a client of your own. Ask for it here
+  # rather than binding something that cannot sign in and telling them to come back.
+  local from_guide=0
+  if [[ -z "$client_id" ]] && secret_is_wanted "$url" && [[ -t 0 ]]; then
+    client_id="$(collect_google_client "$name" || true)"
+    [[ -n "$client_id" ]] && from_guide=1
+  fi
+
   local dir; dir="$(target_dir "$target")"
   mkdir -p "$dir"
   local f="$dir/mcp.json"
@@ -151,7 +191,9 @@ cmd_add() {
     if secret_is_wanted "$url"; then
       local _full="${target}__${name}"
       if [[ -n "$client_id" && -t 0 ]]; then
-        printf '\n  %s needs a client secret once before it can sign in.\n' "$name" >&2
+        # If they just copied both off the same page, do not announce the second one.
+        [[ "$from_guide" == "1" ]] || \
+          printf '\n  %s needs a client secret once before it can sign in.\n' "$name" >&2
         deposit_secret "$_full" "$url" "$client_id" || true
       elif [[ -z "$client_id" ]]; then
         printf '\n  %s needs an OAuth client of your own before it can sign in.\n' "$name" >&2

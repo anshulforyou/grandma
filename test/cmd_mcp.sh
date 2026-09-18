@@ -113,6 +113,47 @@ else
   skip "python3 missing — the deposit was not exercised"
 fi
 
+# From nothing at all: it opens the page, walks the four clicks, takes both values and binds.
+if command -v python3 >/dev/null 2>&1; then
+  OPENB="$TMP/openb"; mkdir -p "$OPENB"
+  printf '#!/bin/sh\nexit 0\n' > "$OPENB/open"; chmod +x "$OPENB/open"
+  cp "$DEP/claude" "$OPENB/claude"
+  cat > "$TMP/drive3.py" <<'DRIVE3'
+import os, pty, time, select, sys
+env = dict(os.environ); env["PATH"] = sys.argv[2] + ":" + env["PATH"]
+pid, fd = pty.fork()
+if pid == 0: os.execve("/bin/bash", ["bash", "-c", sys.argv[1]], env)
+buf = b""
+def pump(sec):
+    global buf
+    end = time.time() + sec
+    while time.time() < end:
+        try:
+            r, _, _ = select.select([fd], [], [], 0.2)
+            if r: buf += os.read(fd, 65536)
+        except OSError: return
+for keys in (b"\r", b"123-abc.apps.googleusercontent.com\r", b"s3cr3t\r", b"n\r"):
+    pump(2.0)
+    try: os.write(fd, keys)
+    except OSError: break
+pump(1.5)
+try: os.kill(pid, 9)
+except Exception: pass
+sys.stdout.write(buf.decode("utf-8", "replace"))
+DRIVE3
+  rm -f "$MCPADDLOG"
+  RAW="$(python3 "$TMP/drive3.py" "$GBIN mcp add globex gmail https://gmailmcp.googleapis.com/mcp/v1" "$OPENB" 2>&1 || true)"
+  LAST_OUT="$(printf '%s' "$RAW" | sed 's/'"$(printf '\033')"'\[[0-9;]*m//g')"
+  assert_contains "Opened https://console.cloud.google.com" "with no client id it opens the page rather than naming it"
+  assert_contains "Desktop app" "and gives the step that has to be right"
+  assert_contains "Internal" "and which audience to pick, which is what Google blocks on"
+  LAST_OUT="$(jq -r '.mcpServers.gmail.oauth.clientId // "none"' "$GRANDMA_HOME/globex/mcp.json" 2>/dev/null)"
+  assert_contains "123-abc.apps.googleusercontent.com" "the collected client id is what gets bound"
+  LAST_OUT="$(cat "$MCPADDLOG" 2>/dev/null | tr '\n' ' ')"
+  assert_contains "secret-present" "and the secret it collected is deposited in the same run"
+  rm -f "$GRANDMA_HOME/globex/mcp.json"
+fi
+
 capture env "$GBIN" mcp add globex notion https://mcp.notion.example/mcp
 assert_not_contains "client secret" "a provider that signs in on its own is not bothered with any of it"
 rm -f "$GRANDMA_HOME/globex/mcp.json"
