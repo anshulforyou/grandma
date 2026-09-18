@@ -87,6 +87,7 @@ DRIVE
 if command -v python3 >/dev/null 2>&1; then
   LAST_OUT="$(python3 "$TMP/drive.py" "$GBIN mcp add globex mail https://gmailmcp.googleapis.com/mcp/v1" "$OPENBIN" 2>&1 || true)"
   assert_contains "Desktop app" "it names the one setting that has to be right"
+  assert_contains "Internal" "it says which audience to pick, which is what Google blocks on"
   assert_contains "console.cloud.google.com" "it points at the page"
   assert_contains "Opened https://console.cloud.google.com" "it opens the page rather than telling you to"
   LAST_OUT="$(jq -r '.mcpServers.mail.oauth.clientId // "none"' "$GRANDMA_HOME/globex/mcp.json" 2>/dev/null)"

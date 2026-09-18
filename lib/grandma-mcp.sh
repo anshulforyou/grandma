@@ -78,9 +78,13 @@ guided_google_setup() {
     printf '    3. Name it anything, then Create\n'
     printf '    4. Copy the client ID and the client secret it shows you\n\n'
     printf '  Desktop app is the part to get right. That type accepts any local port, so there is\n'
-    printf '  no redirect address to fill in anywhere.\n'
-    printf '  If it asks for a consent screen first: External, fill the name and your email, and\n'
-    printf '  add yourself under Test users. Nothing needs publishing or verifying.\n\n'
+    printf '  no redirect address to fill in anywhere.\n\n'
+    printf '  On the consent screen, the audience setting decides whether this keeps working:\n'
+    printf '    - a Google Workspace account (your own domain): choose Internal. Nothing to verify,\n'
+    printf '      and the sign-in lasts.\n'
+    printf '    - a personal account: choose External and add yourself under Test users, or Google\n'
+    printf '      blocks the sign-in outright. Note that this expires after 7 days and you will\n'
+    printf '      have to sign in again, because Google does that to unverified apps.\n\n'
     printf '  Client ID (paste, or Enter to stop): '
   } >&2
   IFS= read -r cid || true
