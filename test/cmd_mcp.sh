@@ -52,22 +52,69 @@ export PATH="$SHIM:$PATH"
 launch() { rm -f "$MCPLOG"; ( "$GBIN" "$@" </dev/null >/dev/null 2>&1 ); cat "$MCPLOG" 2>/dev/null | tr '\n' ' '; }
 
 # ---------------------------------------------------------------------------------------
-section "a provider needing a deposited secret gets the exact command, under the right name"
+section "a provider needing a deposited secret is handled, not described"
 # Some providers want a client secret at the token exchange. A sweater config carries a client
-# ID but has no field for a secret: it is looked up in the CLI's own store, under the server
-# name plus a hash of its config, and only `claude mcp add --client-secret` writes there. So the
-# secret is deposited once under the name the sweater composes, and the sweater's copy finds it.
-capture env "$GBIN" mcp add globex gmail https://gmailmcp.googleapis.com/mcp/v1
-assert_rc 0 "it binds and explains the extra step"
-assert_contains "One more step for this provider" "it flags the extra step"
-assert_contains "claude mcp add --scope user --transport http globex__gmail" "and gives the command under the composed name, which is what the lookup keys on"
-assert_contains "gmailmcp.googleapis.com" "with the same url, since the key hashes it"
-assert_contains "ignored" "and says the registration does not weaken the sweater"
-assert_not_contains "$(printf '\033')" "no escape codes when the output is not a terminal"
-rm -f "$GRANDMA_HOME/globex/mcp.json"
+# ID but has no field for a secret: the CLI looks that up in its own store, and only
+# `claude mcp add --client-secret` writes there. grandma asks for the secret and runs that
+# itself, rather than printing a command for someone to carry out by hand.
+DEP="$TMP/depbin"; mkdir -p "$DEP"
+cat > "$DEP/claude" <<'DEPEOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = "mcp" ] && [ "${2:-}" = "add" ]; then
+  shift 2; printf '%s
+' "$*" > "$MCPADDLOG"
+  [ -n "${MCP_CLIENT_SECRET:-}" ] && { echo "secret-present" >> "$MCPADDLOG"; echo "Added"; exit 0; }
+  echo "no secret"; exit 1
+fi
+case "${1:-}" in
+  --version|-v) echo "0.0.0"; exit 0 ;;
+  --help) echo "  --append-system-prompt[-file] <prompt>"; exit 0 ;;
+esac
+exit 0
+DEPEOF
+chmod +x "$DEP/claude"
+export MCPADDLOG="$TMP/mcpadd.txt"
+cat > "$TMP/drive2.py" <<'DRIVE2'
+import os, pty, time, select, sys
+env = dict(os.environ); env["PATH"] = sys.argv[2] + ":" + env["PATH"]
+pid, fd = pty.fork()
+if pid == 0: os.execve("/bin/bash", ["bash", "-c", sys.argv[1]], env)
+buf = b""
+def pump(sec):
+    global buf
+    end = time.time() + sec
+    while time.time() < end:
+        try:
+            r, _, _ = select.select([fd], [], [], 0.2)
+            if r: buf += os.read(fd, 65536)
+        except OSError: return
+for keys in (b"s3cr3t\r", b"n\r"):
+    pump(2.0)
+    try: os.write(fd, keys)
+    except OSError: break
+pump(1.5)
+try: os.kill(pid, 9)
+except Exception: pass
+sys.stdout.write(buf.decode("utf-8", "replace"))
+DRIVE2
+if command -v python3 >/dev/null 2>&1; then
+  rm -f "$MCPADDLOG"
+  RAW="$(python3 "$TMP/drive2.py" "$GBIN mcp add globex gmail https://gmailmcp.googleapis.com/mcp/v1 --client-id abc.apps.googleusercontent.com" "$DEP" 2>&1 || true)"
+  LAST_OUT="$(printf '%s' "$RAW" | sed 's/'"$(printf '\033')"'\[[0-9;]*m//g')"
+  assert_contains "needs a client secret once" "it says what it needs in one line"
+  assert_not_contains "claude mcp add --scope user" "it does not hand over a command to run"
+  LAST_OUT="$(cat "$MCPADDLOG" 2>/dev/null | tr '\n' ' ')"
+  assert_contains "globex__gmail" "it deposits under the composed name, which is what the lookup keys on"
+  assert_contains "secret-present" "and passes the secret through, without storing it itself"
+  LAST_OUT="$(cat "$GRANDMA_HOME/globex/mcp.json" 2>/dev/null)"
+  assert_not_contains "ecret" "the secret never reaches grandma's own file"
+  rm -f "$GRANDMA_HOME/globex/mcp.json"
+else
+  skip "python3 missing — the deposit was not exercised"
+fi
 
 capture env "$GBIN" mcp add globex notion https://mcp.notion.example/mcp
-assert_not_contains "One more step" "a provider that signs in on its own is not bothered with any of that"
+assert_not_contains "client secret" "a provider that signs in on its own is not bothered with any of it"
 rm -f "$GRANDMA_HOME/globex/mcp.json"
 
 # ---------------------------------------------------------------------------------------
@@ -89,7 +136,7 @@ capture env "$GBIN" mcp add globex mail3 https://example.com/mcp --client-id abc
 assert_rc 1 "a non-numeric port is refused"
 
 capture env "$GBIN" mcp add globex mail4 https://gmailmcp.googleapis.com/mcp/v1
-assert_contains "One more step" "binding a google endpoint names the one-off deposit it needs"
+assert_contains "OAuth client of your own" "binding a google endpoint with no client id says what to make"
 rm -f "$GRANDMA_HOME/globex/mcp.json"
 
 section "the first binding says what it changes"

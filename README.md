@@ -151,15 +151,13 @@ Then `grandma acme` and sign in once with `/mcp` inside the session.
 
 Most providers handle that sign-in themselves, and those just work: bind, launch, pick your account.
 
-A few want a client secret when they hand over the token, and Google is one. A sweater's servers reach the CLI in a config file that carries a client ID but has no field for a secret, so the secret is deposited once, under the name the server loads as:
+A few want a client secret when they hand over the token, and Google is one. grandma asks for it once and hands it to the CLI itself, so there is nothing to copy:
 
 ```sh
-claude mcp add --scope user --transport http acme__gmail \
-  https://gmailmcp.googleapis.com/mcp/v1 \
-  --client-id <your-client-id> --client-secret
+grandma mcp add acme gmail https://gmailmcp.googleapis.com/mcp/v1 --client-id <your-client-id>
 ```
 
-grandma prints that command, filled in, when you bind such a provider. The registration changes nothing about isolation, since a bound sweater ignores it; it only leaves the secret where the sign-in can find it. After that, `grandma acme` and `/mcp` signs in normally and stays signed in.
+It binds, asks for the secret without echoing it, and deposits it under the name the server loads as. grandma keeps no copy. After that, `grandma acme` and `/mcp` signs in normally and stays signed in.
 
 Credentials for those come from the provider. For Google that means an OAuth client of your own, and if the consent screen offers Internal for your own Workspace domain, take it: nothing to verify and it lasts, though an Internal client only admits accounts on that one domain, so a second domain needs its own client bound to its own sweater.
 
