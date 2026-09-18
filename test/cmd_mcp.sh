@@ -60,12 +60,14 @@ section "a provider needing a deposited secret is handled, not described"
 DEP="$TMP/depbin"; mkdir -p "$DEP"
 cat > "$DEP/claude" <<'DEPEOF'
 #!/usr/bin/env bash
+STATE="${MCPSTATE:-$TMPDIR/mcp-registered-probe}"
 if [ "${1:-}" = "mcp" ] && [ "${2:-}" = "add" ]; then
-  shift 2; printf '%s
-' "$*" > "$MCPADDLOG"
-  [ -n "${MCP_CLIENT_SECRET:-}" ] && { echo "secret-present" >> "$MCPADDLOG"; echo "Added"; exit 0; }
+  if [ -f "$STATE" ]; then echo "MCP server already exists in user config"; exit 1; fi
+  shift 2; printf '%s' "$*" > "$MCPADDLOG"
+  if [ -n "${MCP_CLIENT_SECRET:-}" ]; then echo " secret-present" >> "$MCPADDLOG"; : > "$STATE"; echo "Added"; exit 0; fi
   echo "no secret"; exit 1
 fi
+if [ "${1:-}" = "mcp" ] && [ "${2:-}" = "remove" ]; then rm -f "$STATE"; echo "Removed"; exit 0; fi
 case "${1:-}" in
   --version|-v) echo "0.0.0"; exit 0 ;;
   --help) echo "  --append-system-prompt[-file] <prompt>"; exit 0 ;;
@@ -108,6 +110,50 @@ if command -v python3 >/dev/null 2>&1; then
   assert_contains "secret-present" "and passes the secret through, without storing it itself"
   LAST_OUT="$(cat "$GRANDMA_HOME/globex/mcp.json" 2>/dev/null)"
   assert_not_contains "ecret" "the secret never reaches grandma's own file"
+  rm -f "$GRANDMA_HOME/globex/mcp.json"
+
+  # Accepting the sign-in must not ask for the secret again: it is in the CLI's store by then.
+  # Declining would never reach that prompt, so this driver says yes.
+  cat > "$TMP/drive_yes.py" <<'DRIVEY'
+import os, pty, time, select, sys
+env = dict(os.environ); env["PATH"] = sys.argv[2] + ":" + env["PATH"]
+pid, fd = pty.fork()
+if pid == 0: os.execve("/bin/bash", ["bash", "-c", sys.argv[1]], env)
+buf = b""
+def pump(sec):
+    global buf
+    end = time.time() + sec
+    while time.time() < end:
+        try:
+            r, _, _ = select.select([fd], [], [], 0.2)
+            if r: buf += os.read(fd, 65536)
+        except OSError: return
+for keys in (b"s3cr3t\r", b"y\r"):
+    pump(2.0)
+    try: os.write(fd, keys)
+    except OSError: break
+pump(2.0)
+try: os.kill(pid, 9)
+except Exception: pass
+sys.stdout.write(buf.decode("utf-8", "replace"))
+DRIVEY
+  rm -f "$MCPADDLOG"
+  RAW="$(python3 "$TMP/drive_yes.py" "$GBIN mcp add globex gmail https://gmailmcp.googleapis.com/mcp/v1 --client-id abc.apps.googleusercontent.com" "$DEP" 2>&1 || true)"
+  LAST_OUT="$(printf '%s' "$RAW" | sed 's/'"$(printf '\033')"'\[[0-9;]*m//g' | grep -c 'Client secret' | tr -d ' ')"
+  assert_contains "1" "accepting the sign-in does not ask for the secret a second time"
+  rm -f "$GRANDMA_HOME/globex/mcp.json"
+
+  # Re-running is the normal case. A name left over from an earlier attempt is not a failure: it
+  # gets replaced, so the secret it carries is the one just given.
+  MCPSTATE="$TMP/registered"; export MCPSTATE; : > "$MCPSTATE"
+  rm -f "$MCPADDLOG"
+  RAW="$(python3 "$TMP/drive2.py" "$GBIN mcp add globex gmail https://gmailmcp.googleapis.com/mcp/v1 --client-id abc.apps.googleusercontent.com" "$DEP" 2>&1 || true)"
+  LAST_OUT="$(printf '%s' "$RAW" | sed 's/'"$(printf '\033')"'\[[0-9;]*m//g')"
+  assert_contains "replacing the earlier one" "an already-registered name is replaced, not reported as a failure"
+  assert_not_contains "that did not take" "and nothing is presented as an error"
+  LAST_OUT="$(cat "$MCPADDLOG" 2>/dev/null | tr '\n' ' ')"
+  assert_contains "secret-present" "the retry still carries the secret"
+  unset MCPSTATE
   rm -f "$GRANDMA_HOME/globex/mcp.json"
 else
   skip "python3 missing — the deposit was not exercised"

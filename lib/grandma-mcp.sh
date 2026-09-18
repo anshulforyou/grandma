@@ -82,11 +82,24 @@ deposit_secret() {
   local full="$1" url="$2" cid="$3" sec out
   sec="$(read_secret "  Client secret for ${full} (hidden, Enter to skip): ")"
   [[ -n "$sec" ]] || { printf '  Skipped. Sign-in will fail until it is set.\n\n' >&2; return 1; }
-  if out="$(MCP_CLIENT_SECRET="$sec" claude mcp add --scope user --transport http \
-            "$full" "$url" --client-id "$cid" --client-secret 2>&1)"; then
+  _mcp_deposit() {
+    MCP_CLIENT_SECRET="$sec" claude mcp add --scope user --transport http \
+      "$full" "$url" --client-id "$cid" --client-secret 2>&1
+  }
+  if out="$(_mcp_deposit)"; then
     printf '  %sdone%s. the secret is held by claude, not by grandma.\n\n' "$C_KEY" "$C_RESET" >&2
     return 0
   fi
+  # Re-running this is the normal case: a name registered on a previous attempt is not an error,
+  # it just has to be replaced so the secret it carries is the one just given.
+  case "$out" in
+    *"already exists"*)
+      claude mcp remove --scope user "$full" >/dev/null 2>&1 || true
+      if out="$(_mcp_deposit)"; then
+        printf '  %sdone%s, replacing the earlier one. the secret is held by claude, not by grandma.\n\n' "$C_KEY" "$C_RESET" >&2
+        return 0
+      fi ;;
+  esac
   printf '  that did not take:\n%s\n\n' "$out" >&2
   return 1
 }
@@ -207,16 +220,13 @@ cmd_add() {
     printf '\n  next:  grandma %s        then /mcp in the session to sign in the first time\n' "$target" >&2
     # A client of your own also means a secret, and the secret is the one thing grandma will not
     # keep. Take it here, hand it to the session that needs it, and let it go when that exits.
-    if [[ -n "$client_id" && -t 0 ]]; then
-      local go sec
+    if [[ -t 0 ]]; then
+      local go
       printf '\n  Sign in now? [Y/n] ' >&2
       IFS= read -r go || true
       if [[ "${go:-y}" =~ ^[Yy]?$ ]]; then
-        sec="$(read_secret '  Client secret (hidden, never stored): ')"
-        if [[ -n "$sec" ]]; then
-          printf '  starting %s. run /mcp, then Authenticate on %s__%s\n\n' "$target" "$target" "$name" >&2
-          MCP_CLIENT_SECRET="$sec" exec "$ENGINE/bin/grandma" "$target"
-        fi
+        printf '  starting %s. run /mcp, then Authenticate on %s__%s\n\n' "$target" "$target" "$name" >&2
+        exec "$ENGINE/bin/grandma" "$target"
       fi
     fi
     printf '\n' >&2
