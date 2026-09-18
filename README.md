@@ -159,6 +159,14 @@ grandma mcp add acme gmail https://gmailmcp.googleapis.com/mcp/v1
 
 It opens Google's credentials page, tells you which client type to pick and which audience setting matters, takes the client ID and the secret, and does the deposit itself. grandma keeps no copy of the secret. After that, `grandma acme` and `/mcp` signs in normally and stays signed in. Pass `--client-id` if you already have one and it skips straight to the secret.
 
+Google is not the only provider that refuses to register the CLI itself. Slack's hosted server does the same, and others will. grandma only walks you through Google today; for the rest, make a client with the provider and pass `--client-id`, or authenticate with a token instead and pass it as an environment reference:
+
+```sh
+grandma mcp add acme slack https://mcp.slack.com/mcp --header 'Authorization: Bearer $SLACK_TOKEN'
+```
+
+grandma stores the reference, never the token.
+
 Credentials for those come from the provider. For Google that means an OAuth client of your own, and if the consent screen offers Internal for your own Workspace domain, take it: nothing to verify and it lasts, though an Internal client only admits accounts on that one domain, so a second domain needs its own client bound to its own sweater.
 
 Isolation is the CLI's own `--strict-mcp-config`, not a convention: a bound session sees exactly the composed set and ignores every other source, including whatever is configured in the project folder. That cuts both ways, so it is worth knowing before you start: the first server you bind to a sweater also shuts that sweater's account connectors out, and grandma says so at the time. Anything you want everywhere goes in `global/mcp.json`. A sweater that binds nothing passes no flags at all, so nothing changes until you use this. Turn it off for one run with `GRANDMA_NO_MCP=1`.
