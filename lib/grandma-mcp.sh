@@ -44,11 +44,14 @@ cmd_add() {
   need_jq
   local target="${1:-}" name="${2:-}" url="" transport="http"; shift 2 2>/dev/null || true
   local -a hdr=() envv=() cmdargs=()
+  local client_id="" callback_port=""
   [[ -n "$target" && -n "$name" ]] || die "usage: grandma mcp add <sweater|global> <name> <url>"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -t|--transport) transport="$2"; shift 2 ;;
       -H|--header) reject_secret "--header" "$2"; hdr+=("$2"); shift 2 ;;
+      --client-id) client_id="$2"; shift 2 ;;
+      --callback-port) callback_port="$2"; shift 2 ;;
       -e|--env) reject_secret "--env" "$2"; envv+=("$2"); shift 2 ;;
       --) shift; cmdargs=("$@"); transport="stdio"; break ;;
       -*) die "unknown option: $1" ;;
@@ -66,6 +69,19 @@ cmd_add() {
     http|sse)
       [[ -n "$url" ]] || die "give the server's address: grandma mcp add $target $name <url>"
       entry="$(jq -n --arg t "$transport" --arg u "$url" '{type:$t, url:$u}')"
+      # Some providers refuse dynamic client registration, so the CLI cannot introduce itself and
+      # sign-in dies before any consent screen. For those you bring your own OAuth client. Only the
+      # client ID and the callback port are stored: an ID is public, and the SECRET never lands in
+      # a file, it is read from MCP_CLIENT_SECRET at sign-in time.
+      if [[ -n "$client_id" || -n "$callback_port" ]]; then
+        [[ -n "$client_id" ]] || die "--callback-port needs --client-id as well."
+        local oauth; oauth="$(jq -n --arg i "$client_id" '{clientId:$i}')"
+        if [[ -n "$callback_port" ]]; then
+          [[ "$callback_port" =~ ^[0-9]+$ ]] || die "--callback-port must be a number."
+          oauth="$(jq -n --argjson o "$oauth" --argjson p "$callback_port" '$o + {callbackPort:$p}')"
+        fi
+        entry="$(jq -n --argjson e "$entry" --argjson o "$oauth" '$e + {oauth:$o}')"
+      fi
       if [[ ${#hdr[@]} -gt 0 ]]; then
         entry="$(printf '%s\n' "${hdr[@]}" | jq -R 'split(": ") | {(.[0]): (.[1:]|join(": "))}' \
           | jq -s --argjson e "$entry" 'add as $h | $e + {headers:$h}')"
@@ -87,15 +103,37 @@ cmd_add() {
     *) die "transport must be http, sse or stdio" ;;
   esac
 
+  # Binding anything to a sweater switches that sweater to strict isolation, which also shuts out
+  # the account connectors it used to get for free. That is the point of the feature, but it is
+  # invisible, so say it once, on the binding that causes it.
+  local first_binding=0
+  [[ "$(jq -r '.mcpServers | length' "$f" 2>/dev/null || echo 0)" == "0" && "$target" != "global" ]] && first_binding=1
+
   local tmp; tmp="$(mktemp "${TMPDIR:-/tmp}/grandma-mcpadd.XXXXXX")"
   jq --arg n "$name" --argjson e "$entry" '.mcpServers[$n] = $e' "$f" > "$tmp" && mv "$tmp" "$f"
+
+  # A provider that refuses dynamic registration cannot be signed in to without your own client.
+  case "$url" in
+    *googleapis.com*|*google.com*)
+      if [[ -z "$client_id" ]]; then
+        printf '\n  heads up: this provider does not let the CLI register itself, so signing in will\n' >&2
+        printf '  fail with "does not support dynamic client registration" unless you bring your own\n' >&2
+        printf '  OAuth client. Create one in Google Cloud Console with redirect\n' >&2
+        printf '  http://localhost:<port>/callback, then re-add with:\n' >&2
+        printf '    grandma mcp add %s %s %s \\\n      --client-id <id>.apps.googleusercontent.com --callback-port <port>\n' "$target" "$name" "$url" >&2
+        printf '  and export MCP_CLIENT_SECRET before you sign in.\n' >&2
+      fi ;;
+  esac
   if [[ "$target" == "global" ]]; then
     printf '\n  bound %s for every sweater.\n' "$name" >&2
     printf '  it keeps that name, so one login covers all of them.\n\n' >&2
   else
     printf '\n  bound %s to %s. every project in that sweater gets it, nothing else does.\n' "$name" "$target" >&2
     printf '  it loads as %s__%s, which is what gives it a login of its own.\n\n' "$target" "$name" >&2
-    printf '  next:  grandma %s        then /mcp in the session to sign in the first time\n\n' "$target" >&2
+    printf '  next:  grandma %s        then /mcp in the session to sign in the first time\n' "$target" >&2
+    [[ "$first_binding" == "1" ]] && \
+      printf '\n  note: this is the first server bound to %s, so from now on %s sessions see only\n        the servers bound here. Your account connectors (Gmail, Drive, Calendar) are not\n        among them. Put anything you want everywhere under: grandma mcp add global ...\n' "$target" "$target" >&2
+    printf '\n' >&2
   fi
 }
 

@@ -52,6 +52,36 @@ export PATH="$SHIM:$PATH"
 launch() { rm -f "$MCPLOG"; ( "$GBIN" "$@" </dev/null >/dev/null 2>&1 ); cat "$MCPLOG" 2>/dev/null | tr '\n' ' '; }
 
 # ---------------------------------------------------------------------------------------
+section "a provider that refuses dynamic registration can still be bound"
+# Some auth servers will not let the CLI introduce itself, so sign-in dies before any consent
+# screen. For those you supply your own OAuth client. The ID is public and gets stored; the
+# secret never touches the file and is read from the environment at sign-in.
+capture env "$GBIN" mcp add globex mail https://gmailmcp.googleapis.com/mcp/v1 --client-id abc.apps.googleusercontent.com --callback-port 51789
+assert_rc 0 "a server can be bound with your own OAuth client"
+LAST_OUT="$(jq -c '.mcpServers.mail.oauth' "$GRANDMA_HOME/globex/mcp.json")"
+assert_contains '"clientId":"abc.apps.googleusercontent.com"' "the client id is recorded"
+assert_contains '"callbackPort":51789' "so is the fixed callback port"
+LAST_OUT="$(cat "$GRANDMA_HOME/globex/mcp.json")"
+assert_not_contains "clientSecret" "the secret is never written to memory"
+
+capture env "$GBIN" mcp add globex mail2 https://example.com/mcp --callback-port 51789
+assert_rc 1 "a callback port without a client id is refused"
+capture env "$GBIN" mcp add globex mail3 https://example.com/mcp --client-id abc --callback-port not-a-number
+assert_rc 1 "a non-numeric port is refused"
+
+capture env "$GBIN" mcp add globex mail4 https://gmailmcp.googleapis.com/mcp/v1
+assert_contains "dynamic client registration" "binding a google endpoint without a client id warns"
+assert_contains "MCP_CLIENT_SECRET" "and says how to supply the secret"
+rm -f "$GRANDMA_HOME/globex/mcp.json"
+
+section "the first binding says what it changes"
+capture env "$GBIN" mcp add globex notion https://mcp.notion.example/mcp
+assert_contains "account connectors" "the first binding warns that account connectors drop out"
+capture env "$GBIN" mcp add globex second https://second.example/mcp
+assert_not_contains "account connectors" "and it is not repeated on every later binding"
+rm -f "$GRANDMA_HOME/globex/mcp.json"
+
+# ---------------------------------------------------------------------------------------
 section "a local server keeps the flags it was given"
 # `jq --args` treats anything starting with a dash as one of its own options, so passing the
 # command's flags as jq operands made jq fail and an empty args array get written instead.

@@ -147,13 +147,23 @@ grandma mcp list acme                                    # what an acme session 
 grandma mcp remove acme notion
 ```
 
-Then `grandma acme` and sign in once with `/mcp` inside the session. A local server goes after a `--`, as in `grandma mcp add acme tools -- npx my-server`.
+Then `grandma acme` and sign in once with `/mcp` inside the session.
+
+Some providers will not let the CLI register itself, so signing in fails before you ever see a consent screen, saying the auth server does not support dynamic client registration. Google's is one. For those, bring your own OAuth client: create one with the provider, give it the redirect `http://localhost:<port>/callback`, and add the server with it.
+
+```sh
+grandma mcp add acme mail https://mail.example/mcp \
+  --client-id <id> --callback-port 51789
+export MCP_CLIENT_SECRET=...   # read at sign-in, never written to your memory
+```
+
+One OAuth client covers every sweater. Each sweater still signs in separately, so `acme__mail` and `globex__mail` can be two different accounts on the same provider. A local server goes after a `--`, as in `grandma mcp add acme tools -- npx my-server`.
 
 It is stored as `global/mcp.json` and `<sweater>/mcp.json` in the shape the CLI itself uses, so the files stay hand-editable and a definition can be pasted from a vendor's documentation.
 
 Global servers arrive under their own name and share one login everywhere. A sweater's servers are namespaced to that sweater, which is what gives each one its own stored login, since a login is keyed by server name and address. Name a server in a sweater that also exists globally and the sweater's version replaces it there, leaving the global one untouched for everyone else.
 
-Isolation is the CLI's own `--strict-mcp-config`, not a convention: a bound session sees exactly the composed set and ignores every other source, including whatever is configured in the project folder. A sweater that binds nothing passes no flags at all, so nothing changes until you use this. Turn it off for one run with `GRANDMA_NO_MCP=1`.
+Isolation is the CLI's own `--strict-mcp-config`, not a convention: a bound session sees exactly the composed set and ignores every other source, including whatever is configured in the project folder. That cuts both ways, so it is worth knowing before you start: the first server you bind to a sweater also shuts that sweater's account connectors out, and grandma says so at the time. Anything you want everywhere goes in `global/mcp.json`. A sweater that binds nothing passes no flags at all, so nothing changes until you use this. Turn it off for one run with `GRANDMA_NO_MCP=1`.
 
 Credentials are never written into these files. An OAuth server needs only its address, and the login lives in the CLI's own credential store outside your memory repo. A server that needs a key reads it from the environment: pass `--header 'Authorization: Bearer $MY_TOKEN'` and grandma stores the reference. Hand it the token itself and it refuses, because your memory home is a git repo you may push.
 
