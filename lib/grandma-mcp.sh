@@ -74,22 +74,22 @@ guided_google_setup() {
   {
     printf '\n  On that page:\n'
     printf '    1. Create credentials  ->  OAuth client ID\n'
-    printf '    2. Application type:   Desktop app      <- this exact type matters\n'
+    printf '    2. Application type:   %sDesktop app%s      <- this exact type matters\n' "$C_KEY" "$C_RESET"
     printf '    3. Name it anything, then Create\n'
     printf '    4. Copy the client ID and the client secret it shows you\n\n'
-    printf '  Desktop app is the part to get right. That type accepts any local port, so there is\n'
+    printf '  %sDesktop app%s is the part to get right. That type accepts any local port, so there is\n' "$C_KEY" "$C_RESET"
     printf '  no redirect address to fill in anywhere.\n\n'
     printf '  On the consent screen, the audience setting decides whether this keeps working:\n'
-    printf '    - a Google Workspace account on your own domain: choose Internal. Nothing to verify,\n'
+    printf '    - a Google Workspace account on your own domain: choose %sInternal%s. Nothing to verify,\n' "$C_KEY" "$C_RESET"
     printf '      and the sign-in lasts.\n'
-    printf '    - a personal account: choose External and add yourself under Test users, or Google\n'
-    printf '      blocks the sign-in outright. Note that this expires after 7 days and you will\n'
+    printf '    - a personal account: choose %sExternal%s and add yourself under %sTest users%s, or Google\n' "$C_KEY" "$C_RESET" "$C_KEY" "$C_RESET"
+    printf '      blocks the sign-in outright. %sNote that this expires after 7 days%s and you will\n' "$C_WARN" "$C_RESET"
     printf '      have to sign in again, because Google does that to unverified apps.\n\n'
-    printf '  An Internal client only admits accounts on THAT domain. A second account on a\n'
+    printf '  An %sInternal%s client only admits accounts on %sTHAT domain%s. A second account on a\n' "$C_KEY" "$C_RESET" "$C_WARN" "$C_RESET"
     printf '  different domain needs its own client, made inside that organisation. grandma keeps\n'
     printf '  a client per sweater, so that is the shape it expects:\n'
     printf '    grandma mcp add <other-sweater> %s <url> --client-id <client-from-that-domain>\n\n' "$name"
-    printf '  Client ID (paste, or Enter to stop): '
+    printf '  %sClient ID%s (paste, or Enter to stop): ' "$C_KEY" "$C_RESET"
   } >&2
   IFS= read -r cid || true
   [[ -n "$cid" ]] || { printf ''; return 1; }
@@ -127,7 +127,7 @@ cmd_add() {
     fi
     if [[ -z "$client_id" ]]; then
       {
-        printf '\n  Note: signing in to this provider will fail until it has credentials of its own.\n'
+        printf '\n  %sNote%s: signing in to this provider will fail until it has credentials of its own.\n' "$C_WARN" "$C_RESET"
         printf '  Make a Desktop app OAuth client at %s and re-run with --client-id.\n\n' "$GOOGLE_CONSOLE_URL"
       } >&2
     fi
@@ -195,7 +195,7 @@ cmd_add() {
     printf '\n  bound %s to %s. every project in that sweater gets it, nothing else does.\n' "$name" "$target" >&2
     printf '  it loads as %s__%s, which is what gives it a login of its own.\n\n' "$target" "$name" >&2
     [[ "$first_binding" == "1" ]] && \
-      printf '\n  note: this is the first server bound to %s, so from now on %s sessions see only\n        the servers bound here. Your account connectors (Gmail, Drive, Calendar) are not\n        among them. Put anything you want everywhere under: grandma mcp add global ...\n' "$target" "$target" >&2
+      printf '\n  %snote%s: this is the first server bound to %s, so from now on %s sessions see only\n        the servers bound here. Your account connectors (Gmail, Drive, Calendar) are not\n        among them. Put anything you want everywhere under: grandma mcp add global ...\n' "$C_WARN" "$C_RESET" "$target" "$target" >&2
     printf '\n  next:  grandma %s        then /mcp in the session to sign in the first time\n' "$target" >&2
     # A client of your own also means a secret, and the secret is the one thing grandma will not
     # keep. Take it here, hand it to the session that needs it, and let it go when that exits.

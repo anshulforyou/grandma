@@ -60,7 +60,7 @@ OPENBIN="$TMP/openbin"; mkdir -p "$OPENBIN"
 printf '#!/bin/sh\necho "[opened $1]"\n' > "$OPENBIN/open"; chmod +x "$OPENBIN/open"
 cp "$OPENBIN/open" "$OPENBIN/xdg-open"
 cat > "$TMP/drive.py" <<'DRIVE'
-import os, pty, time, select, re, sys
+import os, pty, time, select, sys
 env = dict(os.environ)
 env["PATH"] = sys.argv[2] + ":" + env["PATH"]
 pid, fd = pty.fork()
@@ -82,10 +82,15 @@ for keys in (b"\r", b"1234567890.apps.googleusercontent.com\r", b"n\r"):
 pump(2.5)
 try: os.kill(pid, 9)
 except Exception: pass
-sys.stdout.write(re.sub(rb"\x1b\[[0-9;?]*[a-zA-Z]", b"", buf).decode("utf-8", "replace"))
+sys.stdout.write(buf.decode("utf-8", "replace"))
 DRIVE
 if command -v python3 >/dev/null 2>&1; then
-  LAST_OUT="$(python3 "$TMP/drive.py" "$GBIN mcp add globex mail https://gmailmcp.googleapis.com/mcp/v1" "$OPENBIN" 2>&1 || true)"
+  RAW="$(python3 "$TMP/drive.py" "$GBIN mcp add globex mail https://gmailmcp.googleapis.com/mcp/v1" "$OPENBIN" 2>&1 || true)"
+  # colour is asserted on the raw bytes; the prose checks run on a stripped copy, because a
+  # highlighted word sits in the middle of some of those sentences
+  LAST_OUT="$RAW"
+  assert_contains "38;5;211mDesktop app" "on a terminal the deciding words are highlighted"
+  LAST_OUT="$(printf '%s' "$RAW" | sed 's/'"$(printf '\033')"'\[[0-9;]*m//g')"
   assert_contains "Desktop app" "it names the one setting that has to be right"
   assert_contains "Internal" "it says which audience to pick, which is what Google blocks on"
   assert_contains "only admits accounts on THAT domain" "and warns that an internal client is one domain only"
@@ -103,6 +108,9 @@ fi
 capture env "$GBIN" mcp add globex mail https://gmailmcp.googleapis.com/mcp/v1
 assert_rc 0 "with no terminal it binds rather than hanging on a prompt"
 assert_contains "credentials of its own" "and says what will be needed"
+# Colour is for a person reading a terminal. Piped or redirected output must stay plain, or
+# escape codes end up in logs and in whatever reads us.
+assert_not_contains "$(printf '\033')" "no escape codes when the output is not a terminal"
 rm -f "$GRANDMA_HOME/globex/mcp.json"
 
 # ---------------------------------------------------------------------------------------

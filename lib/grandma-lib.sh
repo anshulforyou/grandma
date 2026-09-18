@@ -602,6 +602,20 @@ bundle_shrink_hint() {
 # subshell, which would throw the array away.
 # Sets SYSPROMPT_TMP to the file it wrote, or empty. cleanup_sysprompt removes it, and every
 # caller must arrange that on EXIT: the file holds the user's memory and must not outlive us.
+# Colour for prose grandma prints to a human. Everything user-facing goes to stderr, so the
+# terminal test is on fd 2: colouring a piped or redirected run would put escape codes into
+# logs and into anything reading our output. NO_COLOR is the convention people already set.
+# shellcheck disable=SC2034  # C_KEY and C_WARN are read by callers in other files
+if [ -t 2 ] && [ -z "${NO_COLOR:-}" ]; then
+  C_RESET=$'\033[0m'
+  C_KEY=$'\033[1;38;5;211m'
+  C_WARN=$'\033[33m'
+else
+  C_RESET=''
+  C_KEY=''
+  C_WARN=''
+fi
+
 # open_url <url> — hand a URL to the user's browser, portably. Silent no-op when there is no
 # opener, because a setup flow must degrade to "here is the link" rather than fail.
 open_url() {
