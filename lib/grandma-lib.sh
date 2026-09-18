@@ -602,6 +602,34 @@ bundle_shrink_hint() {
 # subshell, which would throw the array away.
 # Sets SYSPROMPT_TMP to the file it wrote, or empty. cleanup_sysprompt removes it, and every
 # caller must arrange that on EXIT: the file holds the user's memory and must not outlive us.
+# open_url <url> — hand a URL to the user's browser, portably. Silent no-op when there is no
+# opener, because a setup flow must degrade to "here is the link" rather than fail.
+open_url() {
+  local u="$1"
+  if command -v open >/dev/null 2>&1; then open "$u" >/dev/null 2>&1 && return 0; fi
+  if command -v xdg-open >/dev/null 2>&1; then xdg-open "$u" >/dev/null 2>&1 && return 0; fi
+  # WSL, where the README says Windows users live
+  if command -v wslview >/dev/null 2>&1; then wslview "$u" >/dev/null 2>&1 && return 0; fi
+  if command -v powershell.exe >/dev/null 2>&1; then powershell.exe -NoProfile Start "$u" >/dev/null 2>&1 && return 0; fi
+  return 1
+}
+
+# read_secret <prompt> — read a line without echoing it. The value is returned on stdout for a
+# caller to hold in a variable and nothing else: grandma never writes it anywhere.
+read_secret() {
+  local v=""
+  printf '%s' "$1" >&2
+  if [[ -t 0 ]]; then
+    stty -echo 2>/dev/null || true
+    IFS= read -r v || true
+    stty echo 2>/dev/null || true
+    printf '\n' >&2
+  else
+    IFS= read -r v || true
+  fi
+  printf '%s' "$v"
+}
+
 # ------------------------------------------------------------------ mcp binding ----
 # A sweater can bind MCP servers, and they reach every project in that sweater and nothing
 # outside it. Isolation is the CLI's own `--strict-mcp-config`, which ignores every other MCP

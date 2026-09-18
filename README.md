@@ -149,15 +149,13 @@ grandma mcp remove acme notion
 
 Then `grandma acme` and sign in once with `/mcp` inside the session.
 
-Some providers will not let the CLI register itself, so signing in fails before you ever see a consent screen, saying the auth server does not support dynamic client registration. Google's is one. For those, bring your own OAuth client: create one with the provider, give it the redirect `http://localhost:<port>/callback`, and add the server with it.
+Most providers handle that sign-in themselves. A few will not let the CLI register at all, and Google is one, so a Gmail server needs credentials of your own. grandma notices and walks you through it rather than leaving you to read about OAuth: it explains why, opens the right page when you press Enter, tells you which option to pick, takes the client ID, and offers to finish the sign-in there and then.
 
 ```sh
-grandma mcp add acme mail https://mail.example/mcp \
-  --client-id <id> --callback-port 51789
-export MCP_CLIENT_SECRET=...   # read at sign-in, never written to your memory
+grandma mcp add acme mail https://gmailmcp.googleapis.com/mcp/v1
 ```
 
-One OAuth client covers every sweater. Each sweater still signs in separately, so `acme__mail` and `globex__mail` can be two different accounts on the same provider. A local server goes after a `--`, as in `grandma mcp add acme tools -- npx my-server`.
+You make those credentials once on a machine, not once per sweater. The client ID is stored with the server. The secret is not: grandma asks for it when you sign in, hands it to that one session, and keeps no copy. Each sweater still signs in separately, so `acme__mail` and `globex__mail` can be two different accounts. A local server goes after a `--`, as in `grandma mcp add acme tools -- npx my-server`.
 
 It is stored as `global/mcp.json` and `<sweater>/mcp.json` in the shape the CLI itself uses, so the files stay hand-editable and a definition can be pasted from a vendor's documentation.
 

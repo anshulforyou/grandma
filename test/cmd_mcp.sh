@@ -52,6 +52,58 @@ export PATH="$SHIM:$PATH"
 launch() { rm -f "$MCPLOG"; ( "$GBIN" "$@" </dev/null >/dev/null 2>&1 ); cat "$MCPLOG" 2>/dev/null | tr '\n' ' '; }
 
 # ---------------------------------------------------------------------------------------
+section "a provider needing its own client is walked through, not handed homework"
+# Interactive only, so it needs a real terminal. Piping input would make stdin a pipe, the
+# terminal check would fail, and the guided flow would never run at all: the same trap that
+# stops a piped installer opening a TUI. Drive a pty and type into it instead.
+OPENBIN="$TMP/openbin"; mkdir -p "$OPENBIN"
+printf '#!/bin/sh\necho "[opened $1]"\n' > "$OPENBIN/open"; chmod +x "$OPENBIN/open"
+cp "$OPENBIN/open" "$OPENBIN/xdg-open"
+cat > "$TMP/drive.py" <<'DRIVE'
+import os, pty, time, select, re, sys
+env = dict(os.environ)
+env["PATH"] = sys.argv[2] + ":" + env["PATH"]
+pid, fd = pty.fork()
+if pid == 0:
+    os.execve("/bin/bash", ["bash", "-c", sys.argv[1]], env)
+buf = b""
+def pump(sec):
+    global buf
+    end = time.time() + sec
+    while time.time() < end:
+        try:
+            r, _, _ = select.select([fd], [], [], 0.2)
+            if r: buf += os.read(fd, 65536)
+        except OSError: return
+for keys in (b"\r", b"1234567890.apps.googleusercontent.com\r", b"n\r"):
+    pump(2.5)
+    try: os.write(fd, keys)
+    except OSError: break
+pump(2.5)
+try: os.kill(pid, 9)
+except Exception: pass
+sys.stdout.write(re.sub(rb"\x1b\[[0-9;?]*[a-zA-Z]", b"", buf).decode("utf-8", "replace"))
+DRIVE
+if command -v python3 >/dev/null 2>&1; then
+  LAST_OUT="$(python3 "$TMP/drive.py" "$GBIN mcp add globex mail https://gmailmcp.googleapis.com/mcp/v1" "$OPENBIN" 2>&1 || true)"
+  assert_contains "Desktop app" "it names the one setting that has to be right"
+  assert_contains "console.cloud.google.com" "it points at the page"
+  assert_contains "Opened https://console.cloud.google.com" "it opens the page rather than telling you to"
+  LAST_OUT="$(jq -r '.mcpServers.mail.oauth.clientId // "none"' "$GRANDMA_HOME/globex/mcp.json" 2>/dev/null)"
+  assert_contains "1234567890.apps.googleusercontent.com" "the client ID it collected is what gets bound"
+  LAST_OUT="$(cat "$GRANDMA_HOME/globex/mcp.json" 2>/dev/null)"
+  assert_not_contains "ecret" "no secret is written, whatever was typed"
+  rm -f "$GRANDMA_HOME/globex/mcp.json"
+else
+  skip "python3 missing — the guided flow was not exercised"
+fi
+
+capture env "$GBIN" mcp add globex mail https://gmailmcp.googleapis.com/mcp/v1
+assert_rc 0 "with no terminal it binds rather than hanging on a prompt"
+assert_contains "credentials of its own" "and says what will be needed"
+rm -f "$GRANDMA_HOME/globex/mcp.json"
+
+# ---------------------------------------------------------------------------------------
 section "a provider that refuses dynamic registration can still be bound"
 # Some auth servers will not let the CLI introduce itself, so sign-in dies before any consent
 # screen. For those you supply your own OAuth client. The ID is public and gets stored; the
@@ -70,8 +122,7 @@ capture env "$GBIN" mcp add globex mail3 https://example.com/mcp --client-id abc
 assert_rc 1 "a non-numeric port is refused"
 
 capture env "$GBIN" mcp add globex mail4 https://gmailmcp.googleapis.com/mcp/v1
-assert_contains "dynamic client registration" "binding a google endpoint without a client id warns"
-assert_contains "MCP_CLIENT_SECRET" "and says how to supply the secret"
+assert_contains "credentials of its own" "binding a google endpoint without a client id says so"
 rm -f "$GRANDMA_HOME/globex/mcp.json"
 
 section "the first binding says what it changes"

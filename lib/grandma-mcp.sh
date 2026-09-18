@@ -40,6 +40,59 @@ reject_secret() {
      Memory is a git repo you may push, so grandma will not write a credential into it."
 }
 
+GOOGLE_CONSOLE_URL="https://console.cloud.google.com/apis/credentials"
+
+# google_needs_own_client <url> — true for a provider that will not let the CLI register itself.
+google_needs_own_client() {
+  case "$1" in *googleapis.com*|*google.com*) return 0 ;; esac
+  return 1
+}
+
+# guided_google_setup <target> <name> <url> — walk someone through making the one thing Google
+# insists on. Returns the client ID on stdout, empty if they backed out.
+#
+# Interactive only. A scripted `mcp add` must never block on a prompt, so the caller checks the
+# terminal first and falls back to printing what to do.
+guided_google_setup() {
+  local target="$1" name="$2" ans cid
+  {
+    printf '\n  Google will not let the CLI introduce itself, so a sign-in would fail before you ever\n'
+    printf '  see a consent screen. Every other provider handles that automatically. Google does not.\n\n'
+    printf '  What that means: to keep a separate %s inbox per sweater, you make one set of\n' "$name"
+    printf '  credentials once, on this machine. It covers every sweater from then on, and each\n'
+    printf '  sweater still signs in to its own account.\n\n'
+    printf '  Press Enter to open the Google page, or s to skip and do it later: '
+  } >&2
+  IFS= read -r ans || true
+  case "$ans" in [Ss]*) printf ''; return 1 ;; esac
+
+  if open_url "$GOOGLE_CONSOLE_URL"; then
+    printf '\n  Opened %s\n' "$GOOGLE_CONSOLE_URL" >&2
+  else
+    printf '\n  Open this page: %s\n' "$GOOGLE_CONSOLE_URL" >&2
+  fi
+  {
+    printf '\n  On that page:\n'
+    printf '    1. Create credentials  ->  OAuth client ID\n'
+    printf '    2. Application type:   Desktop app      <- this exact type matters\n'
+    printf '    3. Name it anything, then Create\n'
+    printf '    4. Copy the client ID and the client secret it shows you\n\n'
+    printf '  Desktop app is the part to get right. That type accepts any local port, so there is\n'
+    printf '  no redirect address to fill in anywhere.\n'
+    printf '  If it asks for a consent screen first: External, fill the name and your email, and\n'
+    printf '  add yourself under Test users. Nothing needs publishing or verifying.\n\n'
+    printf '  Client ID (paste, or Enter to stop): '
+  } >&2
+  IFS= read -r cid || true
+  [[ -n "$cid" ]] || { printf ''; return 1; }
+  case "$cid" in
+    *.apps.googleusercontent.com) ;;
+    *) printf '\n  That does not look like a Google client ID. They end in .apps.googleusercontent.com\n' >&2
+       printf ''; return 1 ;;
+  esac
+  printf '%s' "$cid"
+}
+
 cmd_add() {
   need_jq
   local target="${1:-}" name="${2:-}" url="" transport="http"; shift 2 2>/dev/null || true
@@ -58,6 +111,20 @@ cmd_add() {
       *) url="$1"; shift ;;
     esac
   done
+  # A provider that refuses dynamic registration needs a client of your own. Rather than tell
+  # someone to go and read about OAuth, walk them through it and open the page.
+  if [[ -z "$client_id" ]] && google_needs_own_client "$url"; then
+    if [[ -t 0 ]]; then
+      client_id="$(guided_google_setup "$target" "$name" "$url" || true)"
+    fi
+    if [[ -z "$client_id" ]]; then
+      {
+        printf '\n  Note: signing in to this provider will fail until it has credentials of its own.\n'
+        printf '  Make a Desktop app OAuth client at %s and re-run with --client-id.\n\n' "$GOOGLE_CONSOLE_URL"
+      } >&2
+    fi
+  fi
+
   local dir; dir="$(target_dir "$target")"
   mkdir -p "$dir"
   local f="$dir/mcp.json"
@@ -112,27 +179,30 @@ cmd_add() {
   local tmp; tmp="$(mktemp "${TMPDIR:-/tmp}/grandma-mcpadd.XXXXXX")"
   jq --arg n "$name" --argjson e "$entry" '.mcpServers[$n] = $e' "$f" > "$tmp" && mv "$tmp" "$f"
 
-  # A provider that refuses dynamic registration cannot be signed in to without your own client.
-  case "$url" in
-    *googleapis.com*|*google.com*)
-      if [[ -z "$client_id" ]]; then
-        printf '\n  heads up: this provider does not let the CLI register itself, so signing in will\n' >&2
-        printf '  fail with "does not support dynamic client registration" unless you bring your own\n' >&2
-        printf '  OAuth client. Create one in Google Cloud Console with redirect\n' >&2
-        printf '  http://localhost:<port>/callback, then re-add with:\n' >&2
-        printf '    grandma mcp add %s %s %s \\\n      --client-id <id>.apps.googleusercontent.com --callback-port <port>\n' "$target" "$name" "$url" >&2
-        printf '  and export MCP_CLIENT_SECRET before you sign in.\n' >&2
-      fi ;;
-  esac
+
   if [[ "$target" == "global" ]]; then
     printf '\n  bound %s for every sweater.\n' "$name" >&2
     printf '  it keeps that name, so one login covers all of them.\n\n' >&2
   else
     printf '\n  bound %s to %s. every project in that sweater gets it, nothing else does.\n' "$name" "$target" >&2
     printf '  it loads as %s__%s, which is what gives it a login of its own.\n\n' "$target" "$name" >&2
-    printf '  next:  grandma %s        then /mcp in the session to sign in the first time\n' "$target" >&2
     [[ "$first_binding" == "1" ]] && \
       printf '\n  note: this is the first server bound to %s, so from now on %s sessions see only\n        the servers bound here. Your account connectors (Gmail, Drive, Calendar) are not\n        among them. Put anything you want everywhere under: grandma mcp add global ...\n' "$target" "$target" >&2
+    printf '\n  next:  grandma %s        then /mcp in the session to sign in the first time\n' "$target" >&2
+    # A client of your own also means a secret, and the secret is the one thing grandma will not
+    # keep. Take it here, hand it to the session that needs it, and let it go when that exits.
+    if [[ -n "$client_id" && -t 0 ]]; then
+      local go sec
+      printf '\n  Sign in now? [Y/n] ' >&2
+      IFS= read -r go || true
+      if [[ "${go:-y}" =~ ^[Yy]?$ ]]; then
+        sec="$(read_secret '  Client secret (hidden, never stored): ')"
+        if [[ -n "$sec" ]]; then
+          printf '  starting %s. run /mcp, then Authenticate on %s__%s\n\n' "$target" "$target" "$name" >&2
+          MCP_CLIENT_SECRET="$sec" exec "$ENGINE/bin/grandma" "$target"
+        fi
+      fi
+    fi
     printf '\n' >&2
   fi
 }
