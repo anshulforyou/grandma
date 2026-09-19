@@ -44,7 +44,9 @@ export PATH="$SHIM:$PATH"
 # ---------------------------------------------------------------------------------------
 section "the bundle does not ride on argv when the CLI can take a file"
 rm -f "$SEEN"
+ls "${TMPDIR:-/tmp}"/grandma-sysprompt.* 2>/dev/null | sort > "$TMP/sp-before.txt" || true
 capture "$GBIN" globex
+ls "${TMPDIR:-/tmp}"/grandma-sysprompt.* 2>/dev/null | sort > "$TMP/sp-after.txt" || true
 assert_rc 0 "a normal launch succeeds"
 if [ -f "$SEEN" ] && grep -q 'transport=file' "$SEEN"; then
   ok "prompt delivered by file, not argv ($(cat "$SEEN"))"
@@ -56,8 +58,10 @@ if [ -f "$SEEN" ] && grep -q 'mode=600' "$SEEN"; then
 else
   fail "bundle file is not mode 600 — it holds the user's whole memory" "$(cat "$SEEN" 2>/dev/null)"
 fi
-if ls "${TMPDIR:-/tmp}"/grandma-sysprompt.* >/dev/null 2>&1; then
-  fail "the temp bundle file was left behind"
+# Compare before and after rather than globbing the whole temp directory. Another grandma
+# session on the same machine creates files with this name too, and would fail this for us.
+if [ -s "$TMP/sp-after.txt" ] && ! diff -q "$TMP/sp-before.txt" "$TMP/sp-after.txt" >/dev/null 2>&1; then
+  fail "this launch left its prompt file behind: $(comm -13 "$TMP/sp-before.txt" "$TMP/sp-after.txt" | tr '\n' ' ')"
 else
   ok "the temp bundle file is removed after the session"
 fi
@@ -107,9 +111,9 @@ rm -f "$SEEN"
 capture "$ENGINE/lib/grandma-save.sh" globex --transcript "$TMP/t.jsonl" --auto
 assert_not_contains "Argument list too long" "the after-every-session distill does not die on argv"
 
-if ls "${TMPDIR:-/tmp}"/grandma-sysprompt.* >/dev/null 2>&1; then
-  fail "a prompt file was left behind by one of those paths"
-  rm -f "${TMPDIR:-/tmp}"/grandma-sysprompt.*
+ls "${TMPDIR:-/tmp}"/grandma-sysprompt.* 2>/dev/null | sort > "$TMP/sp-after2.txt" || true
+if [ -s "$TMP/sp-after2.txt" ] && ! diff -q "$TMP/sp-before.txt" "$TMP/sp-after2.txt" >/dev/null 2>&1; then
+  fail "one of those paths left a prompt file behind: $(comm -13 "$TMP/sp-before.txt" "$TMP/sp-after2.txt" | tr '\n' ' ')"
 else
   ok "neither path leaves a prompt file behind"
 fi

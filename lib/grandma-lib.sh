@@ -245,7 +245,7 @@ scope_name_is_reserved() {
   q="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
   [[ -n "$q" ]] || return 0
   case "$q" in
-    init|save|review|search|ingest|watch|knit|test|doctor|completions|update|version|help) return 0 ;;
+    init|save|review|search|ingest|watch|knit|mcp|test|doctor|completions|update|version|help) return 0 ;;
     global|proposals|watches|templates) return 0 ;;
   esac
   return 1
@@ -602,6 +602,97 @@ bundle_shrink_hint() {
 # subshell, which would throw the array away.
 # Sets SYSPROMPT_TMP to the file it wrote, or empty. cleanup_sysprompt removes it, and every
 # caller must arrange that on EXIT: the file holds the user's memory and must not outlive us.
+# Colour for prose grandma prints to a human. Everything user-facing goes to stderr, so the
+# terminal test is on fd 2: colouring a piped or redirected run would put escape codes into
+# logs and into anything reading our output. NO_COLOR is the convention people already set.
+# shellcheck disable=SC2034  # C_KEY and C_WARN are read by callers in other files
+if [ -t 2 ] && [ -z "${NO_COLOR:-}" ]; then
+  C_RESET=$'\033[0m'
+  C_KEY=$'\033[1;38;5;211m'
+  C_WARN=$'\033[33m'
+else
+  C_RESET=''
+  C_KEY=''
+  C_WARN=''
+fi
+
+# open_url <url> — hand a URL to the user's browser, portably. Silent no-op when there is no
+# opener, because a setup flow must degrade to "here is the link" rather than fail.
+open_url() {
+  local u="$1"
+  if command -v open >/dev/null 2>&1; then open "$u" >/dev/null 2>&1 && return 0; fi
+  if command -v xdg-open >/dev/null 2>&1; then xdg-open "$u" >/dev/null 2>&1 && return 0; fi
+  # WSL, where the README says Windows users live
+  if command -v wslview >/dev/null 2>&1; then wslview "$u" >/dev/null 2>&1 && return 0; fi
+  if command -v powershell.exe >/dev/null 2>&1; then powershell.exe -NoProfile Start "$u" >/dev/null 2>&1 && return 0; fi
+  return 1
+}
+
+# read_secret <prompt> — read a line without echoing it. The value is returned on stdout for a
+# caller to hold in a variable and nothing else: grandma never writes it anywhere.
+read_secret() {
+  local v=""
+  printf '%s' "$1" >&2
+  if [[ -t 0 ]]; then
+    stty -echo 2>/dev/null || true
+    IFS= read -r v || true
+    stty echo 2>/dev/null || true
+    printf '\n' >&2
+  else
+    IFS= read -r v || true
+  fi
+  printf '%s' "$v"
+}
+
+# ------------------------------------------------------------------ mcp binding ----
+# A sweater can bind MCP servers, and they reach every project in that sweater and nothing
+# outside it. Isolation is the CLI's own `--strict-mcp-config`, which ignores every other MCP
+# source, so this is a hard boundary rather than a convention, the same way sweater memory is.
+#
+# Two optional files, both in the CLI's own `{"mcpServers": {...}}` shape so a definition can be
+# pasted straight from a vendor's docs:
+#   $ROOT/global/mcp.json      servers every sweater gets
+#   $ROOT/<sweater>/mcp.json   servers only this sweater gets
+#
+# Composition, in this order, and the order is the whole design:
+#   1. global servers enter under their own names
+#   2. a sweater server with the same name REPLACES the global one for this sweater
+#   3. sweater servers are then renamed to <sweater>__<name>
+# Renaming last is what makes both rules true at once. The CLI keys a stored MCP login by server
+# NAME plus URL (measured: one `notion` credential serves four different project directories), so
+# a global server keeping its bare name shares one login everywhere, which is what global means,
+# while a sweater server gets a slot of its own and two sweaters can hold two different accounts
+# on the same provider without ever sharing a token.
+#
+# A sweater with neither file passes no flags at all, so nothing changes for anyone not using it.
+
+# mcp_compose <root> <scope> <out.json> — write the composed config. Returns 1 when there is
+# nothing to bind (caller then passes no MCP flags), 2 when jq is missing or a file is malformed.
+mcp_compose() {
+  local root="$1" scope="$2" out="$3" gfile="$1/global/mcp.json" sfile
+  sfile="$(resolve_scope_dir "$scope" 2>/dev/null || true)/mcp.json"
+  [[ -f "$gfile" || -f "$sfile" ]] || return 1
+  command -v jq >/dev/null 2>&1 || return 2
+  [[ -f "$gfile" ]] || gfile="/dev/null"
+  [[ -f "$sfile" ]] || sfile="/dev/null"
+  jq -n --slurpfile g <(cat "$gfile" 2>/dev/null || echo '{}')         --slurpfile s <(cat "$sfile" 2>/dev/null || echo '{}')         --arg scope "$scope" '
+    ($g[0].mcpServers // {}) as $G
+    | ($s[0].mcpServers // {}) as $S
+    # a sweater name removes the global entry it shadows, then the sweater entries are renamed
+    | { mcpServers:
+        ( ($G | with_entries(select(.key as $k | ($S | has($k)) | not)))
+          + ($S | with_entries(.key = ($scope + "__" + .key))) ) }
+  ' > "$out" 2>/dev/null || return 2
+  # an empty result is the same as having nothing to bind
+  [[ "$(jq -r '.mcpServers | length' "$out" 2>/dev/null || echo 0)" -gt 0 ]] || return 1
+  return 0
+}
+
+# mcp_server_names <file> — space-separated names in a composed config, for the launch banner.
+mcp_server_names() {
+  jq -r '.mcpServers | keys_unsorted | join(" ")' "$1" 2>/dev/null || true
+}
+
 # prepare_sysprompt <prompt> [scope] [root] [claude-bin]
 prepare_sysprompt() {
   local prompt="$1" scope="${2:-}" root="${3:-}" bin="${4:-claude}" limit
