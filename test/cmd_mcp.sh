@@ -264,6 +264,60 @@ assert_contains "add" "add is offered"
 assert_contains "remove" "remove is offered"
 
 # ---------------------------------------------------------------------------------------
+section "a session opened to sign in has one job"
+# `grandma mcp add` can start the session for you. That session exists to sign in to one
+# server, so it must not stop to ask about unrelated memory first, and it should say what it
+# was opened for rather than the usual ready-for-a-task line.
+mkdir -p "$GRANDMA_HOME/proposals"
+printf '# grandma memory proposal\n# scope=globex\n\n- something\n' > "$GRANDMA_HOME/proposals/globex-signin.md"
+
+capture env GRANDMA_DRY_RUN=1 "$GBIN" globex
+assert_contains "ready — what are we working on?" "an ordinary launch asks for a task"
+assert_not_contains "needs signing in" "and says nothing about signing in"
+
+capture env GRANDMA_DRY_RUN=1 GRANDMA_MCP_SIGNIN=globex__slack "$GBIN" globex
+assert_contains "globex__slack is bound to this sweater and still needs signing in" "a sign-in launch says what it is for"
+assert_contains "/mcp" "and names the command to run"
+assert_not_contains "ready — what are we working on?" "instead of the usual opening"
+
+if command -v python3 >/dev/null 2>&1; then
+  SIBIN="$TMP/sibin"; mkdir -p "$SIBIN"
+  cat > "$SIBIN/claude" <<'SIEOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version|-v) echo "0.0.0"; exit 0 ;;
+  --help) echo "  --append-system-prompt[-file] <prompt>"; exit 0 ;;
+esac
+echo "SESSION-STARTED"; exit 0
+SIEOF
+  chmod +x "$SIBIN/claude"
+  cat > "$TMP/si.py" <<'SIPY'
+import os, pty, time, select, sys
+env = dict(os.environ, GRANDMA_HOME=sys.argv[2], PATH=sys.argv[3] + ":" + os.environ["PATH"],
+           GRANDMA_NO_HOOK="1", GRANDMA_NO_AUTOSAVE="1", GRANDMA_NO_SPLASH="1")
+if len(sys.argv) > 4: env["GRANDMA_MCP_SIGNIN"] = sys.argv[4]
+pid, fd = pty.fork()
+if pid == 0: os.execve("/bin/bash", ["bash", "-c", sys.argv[1]], env)
+buf = b""; end = time.time() + 8
+while time.time() < end:
+    try:
+        r, _, _ = select.select([fd], [], [], 0.2)
+        if r: buf += os.read(fd, 65536)
+    except OSError: break
+try: os.kill(pid, 9)
+except Exception: pass
+sys.stdout.write(buf.decode("utf-8", "replace"))
+SIPY
+  LAST_OUT="$(python3 "$TMP/si.py" "$GBIN globex" "$GRANDMA_HOME" "$SIBIN" 2>&1 || true)"
+  assert_contains "review before we start" "on a terminal an ordinary launch does offer the review"
+  LAST_OUT="$(python3 "$TMP/si.py" "$GBIN globex" "$GRANDMA_HOME" "$SIBIN" globex__slack 2>&1 || true)"
+  assert_not_contains "review before we start" "a sign-in launch does not stop to ask"
+  assert_contains "review them next time" "it says the proposals are still there"
+  assert_contains "SESSION-STARTED" "and goes straight into the session"
+fi
+rm -f "$GRANDMA_HOME/proposals/globex-signin.md"
+
+# ---------------------------------------------------------------------------------------
 section "a sweater that binds nothing is untouched"
 LAST_OUT="$(launch globex)"
 assert_contains "servers=<none>" "no MCP flags are passed when nothing is bound"

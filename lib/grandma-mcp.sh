@@ -225,8 +225,10 @@ cmd_add() {
       printf '\n  Sign in now? [Y/n] ' >&2
       IFS= read -r go || true
       if [[ "${go:-y}" =~ ^[Yy]?$ ]]; then
-        printf '  starting %s. run /mcp, then Authenticate on %s__%s\n\n' "$target" "$target" "$name" >&2
-        exec "$ENGINE/bin/grandma" "$target"
+        printf '  starting %s...\n\n' "$target" >&2
+        # Tell the session what it was opened for, so it says so itself and skips the
+        # memory-review offer that would otherwise come first.
+        GRANDMA_MCP_SIGNIN="${target}__${name}" exec "$ENGINE/bin/grandma" "$target"
       fi
     fi
     printf '\n' >&2
