@@ -16,6 +16,7 @@
 #   grandma-watch finish <slug>          end a watch early: synthesize the report now
 #   grandma-watch notify-test            fire one desktop notification to verify it works
 #   grandma-watch install-agent          install the daily launchd background job
+#   grandma-watch uninstall-agent        remove it
 #
 # Design notes (hard lessons baked in):
 # - Metrics are mechanical (python over transcript JSONL) — zero LLM, run freely.
@@ -32,6 +33,18 @@ WATCHES="$ROOT/watches"
 CLAUDE_PROJECTS="$HOME/.claude/projects"
 DIGEST_CAP="${GRANDMA_WATCH_DIGEST_CAP:-12}"     # max sessions digested per tick (cost bound)
 QUIET_MIN=30                                      # only digest sessions idle >= this many minutes
+
+WATCH_AGENT_LABEL="com.grandma.watch"
+# Both are overridable so the test suite can point them at its own temp directory. Without
+# that, running the tests would load and unload the agent of whoever ran them.
+WATCH_AGENT_LOG="${GRANDMA_WATCH_AGENT_LOG:-/tmp/grandma-watch.log}"
+watch_agent_plist() {
+  printf '%s/%s.plist' "${GRANDMA_WATCH_AGENT_DIR:-$HOME/Library/LaunchAgents}" "$WATCH_AGENT_LABEL"
+}
+# Every tick writes this, so its reappearance proves the agent can both read the engine and
+# write the memory home. Checked by existence, never by mtime: the stamp has one-second
+# granularity, so a tick landing in the same second as a baseline would be invisible.
+WATCH_STAMP="$ROOT/.watch-checked"
 
 claude_bin() {
   command -v claude 2>/dev/null && return 0
@@ -122,6 +135,10 @@ find_transcripts() { # start_epoch scope_filter
 # ----------------------------------------------------------------- tick ----
 cmd_tick() {
   mkdir -p "$WATCHES"
+  # Written before the lock check, so a tick that finds another one running still stamps.
+  # The stamp answers "could this process read the engine and write the home?", which is
+  # exactly what install-agent needs to know, and that is true either way.
+  date +%s > "$WATCH_STAMP" 2>/dev/null || true
   # atomic lock; steal if stale (>2h). LOCK is global: the EXIT trap fires after this
   # function returns, where a `local` would be unbound under set -u.
   LOCK="$WATCHES/.tick.lock"
@@ -397,31 +414,95 @@ cmd_finish() {
 # default mechanism is the opportunistic tick fired at every grandma launch, which
 # runs in your terminal's (TCC-granted) context and needs no setup.
 cmd_install_agent() {
+  local plist; plist="$(watch_agent_plist)"
   command -v launchctl >/dev/null 2>&1 || {
     echo "launchd is macOS-only. On Linux, add a cron entry instead:" >&2
     echo "  0 20 * * * $ENGINE/lib/grandma-watch.sh tick" >&2
     exit 1
   }
-  echo "NOTE: this requires Full Disk Access for /bin/bash (System Settings > Privacy &" >&2
-  echo "Security > Full Disk Access), or launchd cannot read the grandma repo under" >&2
-  # shellcheck disable=SC2088  # literal "~/Documents" is intentional advice text, not a path to expand
-  echo "~/Documents. Without that grant, skip this: watches tick at every grandma launch." >&2
-  local plist="$HOME/Library/LaunchAgents/com.grandma.watch.plist"
+  mkdir -p "$ROOT" "$(dirname "$plist")"
+
   cat > "$plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>Label</key><string>com.grandma.watch</string>
+  <key>Label</key><string>$WATCH_AGENT_LABEL</string>
   <key>ProgramArguments</key><array>
     <string>/bin/bash</string><string>$ENGINE/lib/grandma-watch.sh</string><string>tick</string>
   </array>
+  <key>EnvironmentVariables</key><dict>
+    <key>GRANDMA_HOME</key><string>$ROOT</string>
+    <key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
   <key>StartCalendarInterval</key><dict><key>Hour</key><integer>20</integer><key>Minute</key><integer>0</integer></dict>
-  <key>StandardOutPath</key><string>/tmp/grandma-watch.log</string>
-  <key>StandardErrorPath</key><string>/tmp/grandma-watch.log</string>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>$WATCH_AGENT_LOG</string>
+  <key>StandardErrorPath</key><string>$WATCH_AGENT_LOG</string>
 </dict></plist>
 EOF
+
+  # Clear the stamp BEFORE loading. Capturing a baseline afterwards races the thing being
+  # measured, because RunAtLoad has already fired by the time load returns.
+  rm -f "$WATCH_STAMP"
+
   launchctl unload "$plist" 2>/dev/null || true
-  launchctl load "$plist" && echo "background agent installed: daily tick at 20:00 (log: /tmp/grandma-watch.log)"
+  if ! launchctl load "$plist" 2>/dev/null; then
+    echo "could not load the agent. The plist is at $plist" >&2
+    rm -f "$plist"
+    exit 1
+  fi
+
+  # Loading is not running. A launchd job cannot read ~/Documents without Full Disk Access
+  # for /bin/bash, so an agent installed from a checkout living there fails on every tick
+  # with "Operation not permitted" while launchctl still reports it loaded. Saying
+  # "installed" there is a lie the user only discovers by never being notified.
+  echo "installed, checking that it can actually run..."
+  local i=0
+  while [[ "$i" -lt 40 ]]; do
+    [[ -f "$WATCH_STAMP" ]] && break
+    sleep 0.25; i=$((i + 1))
+  done
+
+  if [[ -f "$WATCH_STAMP" ]]; then
+    echo "background agent is live: daily tick at 20:00 (log: $WATCH_AGENT_LOG)"
+    echo "remove it any time with: grandma watch uninstall-agent"
+    return 0
+  fi
+
+  # It loaded but did not work. Report what launchd actually said and take the broken job
+  # back out, rather than leaving it failing silently every day.
+  local st reason
+  st="$(launchctl list 2>/dev/null | awk -v l="$WATCH_AGENT_LABEL" '$3 == l {print $2}')"
+  reason="$(tail -n 1 "$WATCH_AGENT_LOG" 2>/dev/null)"
+  launchctl unload "$plist" 2>/dev/null || true
+  rm -f "$plist"
+  echo "" >&2
+  echo "the agent loaded but its first tick did not run${st:+ (launchd exit $st)}, so it has been removed." >&2
+  [[ -n "$reason" ]] && echo "launchd said: $reason" >&2
+  case "$reason" in
+    *"Operation not permitted"*|*"Permission denied"*)
+      echo "" >&2
+      echo "That is macOS file protection, not a bug in the job: a background agent cannot read" >&2
+      echo "$ENGINE without permission. Two ways round it:" >&2
+      echo "  1. move the engine somewhere unprotected (anywhere outside ~/Documents, ~/Desktop," >&2
+      echo "     ~/Downloads), then run this again. This is the simpler one." >&2
+      echo "  2. grant Full Disk Access to /bin/bash in System Settings > Privacy & Security," >&2
+      echo "     then run this again. Broader than it sounds, since it applies to every script." >&2
+      ;;
+    "") echo "It wrote nothing to $WATCH_AGENT_LOG, so launchd could not start it at all." >&2
+        echo "Most often that means it cannot write there: check the path exists and is writable." >&2 ;;
+    *)  echo "See $WATCH_AGENT_LOG for what it tried." >&2 ;;
+  esac
+  echo "" >&2
+  echo "Nothing else changed: watches still tick at every grandma launch." >&2
+  exit 1
+}
+
+cmd_uninstall_agent() {
+  local plist; plist="$(watch_agent_plist)"
+  command -v launchctl >/dev/null 2>&1 && launchctl unload "$plist" 2>/dev/null
+  if [[ -f "$plist" ]]; then rm -f "$plist"; echo "background agent removed."
+  else echo "no background agent was installed."; fi
 }
 
 # ----------------------------------------------------------------- main ----
@@ -438,6 +519,7 @@ case "${1:-}" in
                  else
                    echo "notify-test: no notification delivered — see $ROOT/.distill/notify.log" >&2; exit 1
                  fi ;;
-  install-agent) cmd_install_agent ;;
+  install-agent)   cmd_install_agent ;;
+  uninstall-agent) cmd_uninstall_agent ;;
   *) sed -n '3,18p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac
