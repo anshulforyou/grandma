@@ -12,6 +12,7 @@
 #   grandma save <sweater> [project]   distill a finished session into memory
 #   grandma review [sweater]           review auto-distill proposals
 #   grandma search [sweater] <query>   grep across your memory
+#   grandma status                     one screen for the whole memory home
 #   grandma ingest [sweater] [--root]  catalog a folder of projects into a sweater
 #   grandma watch <start|status|...>   analysis campaigns over your sessions
 #   grandma knit <share|pull|list>     share a project's memory with a teammate
@@ -35,6 +36,7 @@ case "$sub" in
   save)         shift; exec "$ENGINE/lib/grandma-save.sh" "$@" ;;
   review)       shift; exec "$ENGINE/lib/grandma-review.sh" "$@" ;;
   search)       shift; exec "$ENGINE/lib/grandma-search.sh" "$@" ;;
+  status)       shift; exec "$ENGINE/lib/grandma-status.sh" "$@" ;;
   ingest)       shift; exec "$ENGINE/lib/grandma-ingest.sh" "$@" ;;
   watch)        shift; exec "$ENGINE/lib/grandma-watch.sh" "$@" ;;
   knit)         shift; exec "$ENGINE/lib/grandma-knit.sh" "$@" ;;
