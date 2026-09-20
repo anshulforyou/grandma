@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Fixed: `grandma watch install-agent` said "background agent installed" without ever checking the
+  job could run. A launchd agent cannot read `~/Documents` without Full Disk Access for `/bin/bash`,
+  so an engine living there loads cleanly, reports as loaded, and then dies on every tick with
+  "Operation not permitted". The user was told it was installed, watches never ran, and nothing said
+  why — the only symptom was an absence. Install now clears the tick's stamp, loads the job, and
+  waits for the stamp to come back; every tick writes it, so its return proves the agent can both
+  read the engine and write the memory home. If it does not return, the job is unloaded, the plist
+  deleted, and the `launchctl` exit status plus the last log line are quoted back with the two ways
+  round it. Verification is by existence, not mtime: the stamp has one-second granularity, so a tick
+  landing in the same second as a baseline would be invisible and a working agent called broken.
+- Added: `grandma watch uninstall-agent`, so a background job can be removed by the same tool that
+  installed it.
+- Fixed: the watch agent's plist did not pass `GRANDMA_HOME`, so a tick run by launchd used the
+  default memory home even when the installing shell had another one set.
+
 - Fixed: a large memory home could not launch at all. The bundle was handed to the CLI as a single
   command-line argument, and two different kernel limits sit on that, neither having anything to do
   with how much memory is reasonable to load. Linux caps one argument at 128 KB, hardcoded and
