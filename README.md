@@ -157,7 +157,7 @@ A few need credentials of your own, and Google is one. Bind it the same way and 
 grandma mcp add acme gmail https://gmailmcp.googleapis.com/mcp/v1
 ```
 
-It opens Google's credentials page, tells you which client type to pick and which audience setting matters, takes the client ID and the secret, and does the deposit itself. grandma keeps no copy of the secret. After that, `grandma acme` and `/mcp` signs in normally and stays signed in. Pass `--client-id` if you already have one and it skips straight to the secret.
+It opens Google's credentials page, tells you which client type to pick and which audience setting matters, takes the client ID and the secret, and does the deposit itself. grandma keeps no copy of the secret, and the deposit leaves nothing registered that another sweater would load. After that, `grandma acme` and `/mcp` signs in normally and stays signed in. Pass `--client-id` if you already have one and it skips straight to the secret.
 
 Google is not the only provider that refuses to register the CLI itself. Slack's hosted server does the same, and others will. grandma only walks you through Google today; for the rest, make a client with the provider and pass `--client-id`, or authenticate with a token instead and pass it as an environment reference:
 

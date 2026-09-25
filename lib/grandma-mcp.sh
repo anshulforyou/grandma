@@ -78,28 +78,25 @@ collect_google_client() {
 # looks that up in its OWN credential store, keyed by server name plus a hash of the config, and
 # only `claude mcp add --client-secret` writes there. So grandma asks for the secret and hands it
 # straight to that command. It holds it for the length of one call and stores nothing itself.
+#
+# The add runs at project scope inside a folder made for it and deleted after. At user scope the
+# registration would stay behind and load in every sweater that binds nothing, which is the
+# mixing this feature exists to stop. Removing it afterwards is no answer, because `mcp remove`
+# deletes the secret too. The store keys on name and url, not on where the server was declared,
+# so the secret still lands where the sweater's own config looks it up. A fresh folder also means
+# a re-run never collides with an earlier attempt, it just overwrites the secret.
 deposit_secret() {
-  local full="$1" url="$2" cid="$3" sec out
+  local full="$1" url="$2" cid="$3" sec out dir rc=0
   sec="$(read_secret "  Client secret for ${full} (hidden, Enter to skip): ")"
   [[ -n "$sec" ]] || { printf '  Skipped. Sign-in will fail until it is set.\n\n' >&2; return 1; }
-  _mcp_deposit() {
-    MCP_CLIENT_SECRET="$sec" claude mcp add --scope user --transport http \
-      "$full" "$url" --client-id "$cid" --client-secret 2>&1
-  }
-  if out="$(_mcp_deposit)"; then
+  dir="$(mktemp -d "${TMPDIR:-/tmp}/grandma-deposit.XXXXXX")" || { printf '  cannot make a temp folder.\n\n' >&2; return 1; }
+  out="$(cd "$dir" && MCP_CLIENT_SECRET="$sec" claude mcp add --scope project --transport http \
+    "$full" "$url" --client-id "$cid" --client-secret 2>&1)" || rc=$?
+  rm -rf "$dir"
+  if [[ "$rc" -eq 0 ]]; then
     printf '  %sdone%s. the secret is held by claude, not by grandma.\n\n' "$C_KEY" "$C_RESET" >&2
     return 0
   fi
-  # Re-running this is the normal case: a name registered on a previous attempt is not an error,
-  # it just has to be replaced so the secret it carries is the one just given.
-  case "$out" in
-    *"already exists"*)
-      claude mcp remove --scope user "$full" >/dev/null 2>&1 || true
-      if out="$(_mcp_deposit)"; then
-        printf '  %sdone%s, replacing the earlier one. the secret is held by claude, not by grandma.\n\n' "$C_KEY" "$C_RESET" >&2
-        return 0
-      fi ;;
-  esac
   printf '  that did not take:\n%s\n\n' "$out" >&2
   return 1
 }
@@ -213,8 +210,9 @@ cmd_add() {
         printf '  Make one at https://console.cloud.google.com/apis/credentials, then:\n' >&2
         printf '    grandma mcp add %s %s %s --client-id <id>\n\n' "$target" "$name" "$url" >&2
       else
-        printf '\n  %s also needs its client secret deposited once:\n' "$name" >&2
-        printf '    claude mcp add --scope user --transport http %s %s --client-id %s --client-secret\n\n' "$_full" "$url" "$client_id" >&2
+        # Project scope in a folder of its own, for the same reason deposit_secret uses it.
+        printf '\n  %s also needs its client secret deposited once. From an empty folder you then delete:\n' "$name" >&2
+        printf '    claude mcp add --scope project --transport http %s %s --client-id %s --client-secret\n\n' "$_full" "$url" "$client_id" >&2
       fi
     fi
     printf '\n  next:  grandma %s        then /mcp in the session to sign in the first time\n' "$target" >&2

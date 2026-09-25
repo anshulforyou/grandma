@@ -328,8 +328,15 @@ for _f in "$ENGINE"/lib/*.sh; do
            mc_ok=0 ;;
       esac ;;
   esac
+  # The other way in is the CLI's own user config. A server registered there loads in every
+  # sweater that binds nothing, so the engine must never put one there.
+  case "$_code" in
+    *"--scope user"*|*"-s user"*)
+      bad "$(basename "$_f"): registers an MCP server at user scope, where every unbound sweater loads it"
+      mc_ok=0 ;;
+  esac
 done
-[[ "$mc_ok" == "1" ]] && pass "MCP config is only ever passed with strict mode"
+[[ "$mc_ok" == "1" ]] && pass "MCP config is only ever passed with strict mode, and nothing is registered at user scope"
 
 echo
 if [[ "$fail" == "0" ]]; then echo "grandma-test: ALL PASS"; else echo "grandma-test: FAILURES ABOVE"; fi

@@ -60,14 +60,19 @@ section "a provider needing a deposited secret is handled, not described"
 DEP="$TMP/depbin"; mkdir -p "$DEP"
 cat > "$DEP/claude" <<'DEPEOF'
 #!/usr/bin/env bash
+# A user-scope add behaves like the real CLI on a re-run: the name is already there. A project-
+# scope add writes .mcp.json where it runs, which is what has to be cleaned up behind it.
 STATE="${MCPSTATE:-$TMPDIR/mcp-registered-probe}"
 if [ "${1:-}" = "mcp" ] && [ "${2:-}" = "add" ]; then
-  if [ -f "$STATE" ]; then echo "MCP server already exists in user config"; exit 1; fi
-  shift 2; printf '%s' "$*" > "$MCPADDLOG"
-  if [ -n "${MCP_CLIENT_SECRET:-}" ]; then echo " secret-present" >> "$MCPADDLOG"; : > "$STATE"; echo "Added"; exit 0; fi
+  shift 2
+  case " $* " in *" --scope user "*) [ -f "$STATE" ] && { echo "MCP server already exists in user config"; exit 1; } ;; esac
+  printf '%s' "$*" > "$MCPADDLOG"; printf '%s' "$PWD" > "$MCPADDLOG.cwd"
+  if [ -n "${MCP_CLIENT_SECRET:-}" ]; then
+    echo " secret-present" >> "$MCPADDLOG"; : > "$STATE"; echo '{}' > .mcp.json; echo "Added"; exit 0
+  fi
   echo "no secret"; exit 1
 fi
-if [ "${1:-}" = "mcp" ] && [ "${2:-}" = "remove" ]; then rm -f "$STATE"; echo "Removed"; exit 0; fi
+if [ "${1:-}" = "mcp" ] && [ "${2:-}" = "remove" ]; then echo "remove $*" >> "$MCPADDLOG.remove"; rm -f "$STATE"; echo "Removed"; exit 0; fi
 case "${1:-}" in
   --version|-v) echo "0.0.0"; exit 0 ;;
   --help) echo "  --append-system-prompt[-file] <prompt>"; exit 0 ;;
@@ -108,6 +113,15 @@ if command -v python3 >/dev/null 2>&1; then
   LAST_OUT="$(cat "$MCPADDLOG" 2>/dev/null | tr '\n' ' ')"
   assert_contains "globex__gmail" "it deposits under the composed name, which is what the lookup keys on"
   assert_contains "secret-present" "and passes the secret through, without storing it itself"
+  # At user scope the registration outlives the call and loads in every sweater that binds
+  # nothing, carrying one sweater's account into all the others.
+  assert_contains "--scope project" "it deposits at project scope"
+  assert_not_contains "--scope user" "never at user scope, where every unbound sweater would load it"
+  DEPDIR="$(cat "$MCPADDLOG.cwd" 2>/dev/null)"
+  LAST_OUT="$DEPDIR"
+  assert_contains "grandma-deposit." "inside a folder made for it, not the directory it was run from"
+  if [ -n "$DEPDIR" ] && [ ! -e "$DEPDIR" ]; then ok "and that folder is gone afterwards"
+  else fail "and that folder is gone afterwards" "still present: $DEPDIR"; fi
   LAST_OUT="$(cat "$GRANDMA_HOME/globex/mcp.json" 2>/dev/null)"
   assert_not_contains "ecret" "the secret never reaches grandma's own file"
   rm -f "$GRANDMA_HOME/globex/mcp.json"
@@ -143,16 +157,18 @@ DRIVEY
   assert_contains "1" "accepting the sign-in does not ask for the secret a second time"
   rm -f "$GRANDMA_HOME/globex/mcp.json"
 
-  # Re-running is the normal case. A name left over from an earlier attempt is not a failure: it
-  # gets replaced, so the secret it carries is the one just given.
+  # Re-running is the normal case. Each deposit gets a fresh folder, so an earlier attempt is
+  # never in the way, and nothing is removed first, because a remove would delete the secret too.
   MCPSTATE="$TMP/registered"; export MCPSTATE; : > "$MCPSTATE"
-  rm -f "$MCPADDLOG"
+  rm -f "$MCPADDLOG" "$MCPADDLOG.remove"
   RAW="$(python3 "$TMP/drive2.py" "$GBIN mcp add globex gmail https://gmailmcp.googleapis.com/mcp/v1 --client-id abc.apps.googleusercontent.com" "$DEP" 2>&1 || true)"
   LAST_OUT="$(printf '%s' "$RAW" | sed 's/'"$(printf '\033')"'\[[0-9;]*m//g')"
-  assert_contains "replacing the earlier one" "an already-registered name is replaced, not reported as a failure"
+  assert_contains "done" "a re-run over an earlier attempt deposits cleanly"
   assert_not_contains "that did not take" "and nothing is presented as an error"
   LAST_OUT="$(cat "$MCPADDLOG" 2>/dev/null | tr '\n' ' ')"
-  assert_contains "secret-present" "the retry still carries the secret"
+  assert_contains "secret-present" "the re-run still carries the secret"
+  if [ ! -e "$MCPADDLOG.remove" ]; then ok "and nothing is removed, which would take the secret with it"
+  else fail "and nothing is removed, which would take the secret with it" "$(cat "$MCPADDLOG.remove")"; fi
   unset MCPSTATE
   rm -f "$GRANDMA_HOME/globex/mcp.json"
 else
