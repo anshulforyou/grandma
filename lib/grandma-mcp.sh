@@ -6,9 +6,11 @@
 #   grandma mcp add <sweater> <name> <url>   bind a server to that sweater
 #   grandma mcp add global <name> <url>      bind it to every sweater
 #   grandma mcp remove <sweater> <name>      unbind
+#   grandma mcp strict <sweater> [on|off]    only its own servers, no account connectors
 #
-# Servers are stored as <sweater>/mcp.json in the memory home, in the CLI's own shape, so the
-# file stays hand-editable and a definition can still be pasted from a vendor's docs.
+# Anything a sweater does not bind still comes from the account's own connectors, unless the
+# sweater is strict. Servers are stored as <sweater>/mcp.json in the memory home, in the CLI's
+# own shape, so the file stays hand-editable and a definition can be pasted from a vendor's docs.
 #
 # NO SECRET IS EVER WRITTEN HERE. A memory home is a git repo the user may push, so a header
 # or environment value must be a reference like $TOKEN, never the token. An OAuth server needs
@@ -178,11 +180,12 @@ cmd_add() {
     *) die "transport must be http, sse or stdio" ;;
   esac
 
-  # Binding anything to a sweater switches that sweater to strict isolation, which also shuts out
-  # the account connectors it used to get for free. That is the point of the feature, but it is
-  # invisible, so say it once, on the binding that causes it.
+  # The first binding changes what the account's connectors do for this sweater: one at the same
+  # address as a bound server is replaced by it, the rest still come through. That is invisible,
+  # so say it once, on the binding that causes it. A strict sweater already chose to lose them.
   local first_binding=0
-  [[ "$(jq -r '.mcpServers | length' "$f" 2>/dev/null || echo 0)" == "0" && "$target" != "global" ]] && first_binding=1
+  [[ "$(jq -r '.mcpServers | length' "$f" 2>/dev/null || echo 0)" == "0" && "$target" != "global" \
+    && "$(jq -r '.strict // false' "$f" 2>/dev/null)" != "true" ]] && first_binding=1
 
   local tmp; tmp="$(mktemp "${TMPDIR:-/tmp}/grandma-mcpadd.XXXXXX")"
   jq --arg n "$name" --argjson e "$entry" '.mcpServers[$n] = $e' "$f" > "$tmp" && mv "$tmp" "$f"
@@ -192,10 +195,10 @@ cmd_add() {
     printf '\n  bound %s for every sweater.\n' "$name" >&2
     printf '  it keeps that name, so one login covers all of them.\n\n' >&2
   else
-    printf '\n  bound %s to %s. every project in that sweater gets it, nothing else does.\n' "$name" "$target" >&2
+    printf '\n  bound %s to %s. every project in that sweater gets it, no other sweater does.\n' "$name" "$target" >&2
     printf '  it loads as %s__%s, which is what gives it a login of its own.\n\n' "$target" "$name" >&2
     [[ "$first_binding" == "1" ]] && \
-      printf '\n  %snote%s: this is the first server bound to %s, so from now on %s sessions see only\n        the servers bound here. Your account connectors (Gmail, Drive, Calendar) are not\n        among them. Put anything you want everywhere under: grandma mcp add global ...\n' "$C_WARN" "$C_RESET" "$target" "$target" >&2
+      printf '\n  %snote%s: %s still gets your account connectors for anything it does not bind. One that\n        points at the same server as %s is replaced by it. To keep %s to its own servers\n        only: grandma mcp strict %s on\n' "$C_WARN" "$C_RESET" "$target" "$name" "$target" "$target" >&2
     # This provider will not finish a sign-in without a client secret, so offer to set it now
     # rather than leave the reader a command to carry out.
     if secret_is_wanted "$url"; then
@@ -243,9 +246,41 @@ cmd_remove() {
     || die "$target has no server called '$name'. see: grandma mcp list $target"
   local tmp; tmp="$(mktemp "${TMPDIR:-/tmp}/grandma-mcprm.XXXXXX")"
   jq --arg n "$name" 'del(.mcpServers[$n])' "$f" > "$tmp" && mv "$tmp" "$f"
-  # leave no empty file behind pretending something is bound
-  [[ "$(jq -r '.mcpServers | length' "$f")" == "0" ]] && rm -f "$f"
+  # leave no empty file behind pretending something is bound, unless it still carries strict
+  [[ "$(jq -r '.mcpServers | length' "$f")" == "0" && "$(jq -r '.strict // false' "$f")" != "true" ]] && rm -f "$f"
   printf '  unbound %s from %s.\n' "$name" "$target" >&2
+}
+
+# strict <sweater> [on|off] — with no state, say what it is. Strict means the session sees only
+# the sweater's own servers (plus global), and none of the account's connectors or any other
+# source. Per sweater only: global strict would be every sweater, which is the old default.
+cmd_strict() {
+  need_jq
+  local target="${1:-}" state="${2:-}" dir f tmp
+  [[ -n "$target" ]] || die "usage: grandma mcp strict <sweater> [on|off]"
+  [[ "$target" != "global" ]] || die "strict is per sweater. name the sweater that should see only its own servers."
+  dir="$(target_dir "$target")"; f="$dir/mcp.json"
+  case "$state" in
+    "")
+      if [[ -f "$f" && "$(jq -r '.strict // false' "$f" 2>/dev/null)" == "true" ]]; then
+        printf '  %s is strict: its sessions see only its own servers.\n' "$target" >&2
+      else
+        printf '  %s is not strict: anything it does not bind comes from your account connectors.\n' "$target" >&2
+      fi ;;
+    on)
+      [[ -f "$f" ]] || printf '{"mcpServers":{}}\n' > "$f"
+      tmp="$(mktemp "${TMPDIR:-/tmp}/grandma-mcpst.XXXXXX")"
+      jq '.strict = true' "$f" > "$tmp" && mv "$tmp" "$f"
+      printf '  %s is strict now. its sessions see only its own servers, no account connectors.\n' "$target" >&2 ;;
+    off)
+      if [[ -f "$f" ]]; then
+        tmp="$(mktemp "${TMPDIR:-/tmp}/grandma-mcpst.XXXXXX")"
+        jq 'del(.strict)' "$f" > "$tmp" && mv "$tmp" "$f"
+        [[ "$(jq -r '.mcpServers | length' "$f")" == "0" ]] && rm -f "$f"
+      fi
+      printf '  %s is not strict. anything it does not bind comes from your account connectors.\n' "$target" >&2 ;;
+    *) die "usage: grandma mcp strict <sweater> [on|off]" ;;
+  esac
 }
 
 # one sweater: what it actually gets, which is the composed set, not just its own file
@@ -254,7 +289,8 @@ show_scope() {
   tmp="$(mktemp "${TMPDIR:-/tmp}/grandma-mcpls.XXXXXX")"
   rc=0; mcp_compose "$ROOT" "$scope" "$tmp" || rc=$?
   if [[ "$rc" == "0" ]]; then
-    printf '  %s\n' "$scope"
+    if [[ "$MCP_STRICT" == "1" ]]; then printf '  %s   (strict: nothing else loads)\n' "$scope"
+    else printf '  %s   (plus your account connectors)\n' "$scope"; fi
     jq -r '.mcpServers | to_entries[] | "      \(.key)  \(.value.url // .value.command // "")"' "$tmp"
   elif [[ "$rc" == "2" ]]; then
     printf '  %s   (its mcp.json could not be read)\n' "$scope"
@@ -288,8 +324,9 @@ cmd_list() {
 
 case "${1:-list}" in
   add)    shift; cmd_add "$@" ;;
+  strict) shift; cmd_strict "$@" ;;
   remove|rm) shift; cmd_remove "$@" ;;
   list|"") shift 2>/dev/null || true; cmd_list "$@" ;;
-  -h|--help|help) sed -n '3,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
-  *) die "usage: grandma mcp <list|add|remove>" ;;
+  -h|--help|help) sed -n '3,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  *) die "usage: grandma mcp <list|add|remove|strict>" ;;
 esac

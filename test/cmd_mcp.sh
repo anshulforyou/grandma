@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Behavioral test for per-sweater MCP binding.
 #
-# The promise: a sweater's MCP servers reach every project in that sweater and nothing outside
-# it. The isolation is the CLI's own --strict-mcp-config, which ignores every other MCP source,
-# so this is a boundary rather than a convention. Composition order is the design: global servers
+# The promise: a sweater's MCP servers reach every project in that sweater and no other sweater.
+# Anything it does not bind falls through to the account's own connectors, and a sweater that
+# asks for strict gets the CLI's --strict-mcp-config and nothing else. Composition order is the design: global servers
 # enter under their own names, a sweater server of the same name replaces the global one for that
 # sweater, and sweater servers are renamed last. Renaming last is what lets both rules hold, and
 # it is also what gives each sweater its own stored login, because the CLI keys an MCP credential
@@ -244,7 +244,8 @@ rm -f "$GRANDMA_HOME/globex/mcp.json"
 
 section "the first binding says what it changes"
 capture env "$GBIN" mcp add globex notion https://mcp.notion.example/mcp
-assert_contains "account connectors" "the first binding warns that account connectors drop out"
+assert_contains "account connectors" "the first binding says what happens to the account connectors"
+assert_contains "grandma mcp strict globex on" "and how to keep the sweater to its own servers"
 capture env "$GBIN" mcp add globex second https://second.example/mcp
 assert_not_contains "account connectors" "and it is not repeated on every later binding"
 rm -f "$GRANDMA_HOME/globex/mcp.json"
@@ -270,7 +271,12 @@ rm -f "$MCPLOG"
 ( "$GBIN" globex a-project-that-does-not-exist </dev/null >/dev/null 2>&1 )
 LAST_OUT="$(cat "$MCPLOG" 2>/dev/null | tr '\n' ' ')"
 assert_contains "globex__notion" "an onboarding session is bound to the sweater's servers"
-assert_contains "strict=yes" "and is isolated the same way a normal launch is"
+assert_contains "strict=no" "and falls through the same way a normal launch does"
+capture env "$GBIN" mcp strict globex on
+rm -f "$MCPLOG"
+( "$GBIN" globex a-project-that-does-not-exist </dev/null >/dev/null 2>&1 )
+LAST_OUT="$(cat "$MCPLOG" 2>/dev/null | tr '\n' ' ')"
+assert_contains "strict=yes" "and a strict sweater's onboarding is strict too"
 rm -f "$GRANDMA_HOME/globex/mcp.json"
 
 section "the verbs are completable, like every other subcommand"
@@ -278,6 +284,7 @@ capture env "$GBIN" completions __mcp_commands
 assert_rc 0 "completions knows the mcp verbs"
 assert_contains "add" "add is offered"
 assert_contains "remove" "remove is offered"
+assert_contains "strict" "strict is offered"
 
 # ---------------------------------------------------------------------------------------
 section "a session opened to sign in has one job"
@@ -381,7 +388,72 @@ cat > "$GRANDMA_HOME/globex/mcp.json" <<'EOF'
 EOF
 LAST_OUT="$(launch globex)"
 assert_contains "globex__notion" "the sweater's server is namespaced with the sweater"
-assert_contains "strict=yes" "every other MCP source is shut out"
+# Unbound providers come from the account's connectors. The CLI drops a connector that duplicates
+# a bound server, so strict is not what keeps a bound provider from appearing twice.
+assert_contains "strict=no" "anything it does not bind falls through to the account"
+capture env GRANDMA_DRY_RUN=1 "$GBIN" globex
+assert_contains "plus your account connectors" "and the launch says so"
+
+# ---------------------------------------------------------------------------------------
+section "a sweater can ask to see only its own servers"
+capture env "$GBIN" mcp strict globex
+assert_contains "not strict" "strict is off until asked for"
+capture env "$GBIN" mcp strict globex on
+assert_rc 0 "strict can be switched on"
+LAST_OUT="$(launch globex)"
+assert_contains "strict=yes" "a strict sweater shuts every other source out"
+assert_contains "globex__notion" "and still gets its own servers"
+capture env "$GBIN" mcp strict globex
+assert_contains "is strict" "and it reports that it is strict"
+capture env "$GBIN" mcp list globex
+assert_contains "strict" "list shows it too"
+LAST_OUT="$(launch home-ops)"
+assert_contains "strict=no" "one sweater's strict does not reach another"
+
+# Unbinding the last server must not quietly drop strict along with the file.
+capture env "$GBIN" mcp remove globex notion
+assert_file "$GRANDMA_HOME/globex/mcp.json" "removing the last server keeps a strict sweater's file"
+LAST_OUT="$(launch globex)"
+assert_contains "strict=yes" "so a strict sweater with nothing bound is still strict, which means no MCP at all"
+
+capture env "$GBIN" mcp strict globex off
+assert_rc 0 "strict can be switched off"
+assert_no_file "$GRANDMA_HOME/globex/mcp.json" "and with nothing bound, no file is left pretending otherwise"
+LAST_OUT="$(launch globex)"
+assert_contains "strict=no" "the sweater falls through again"
+
+capture env "$GBIN" mcp strict global on
+assert_rc 1 "strict is per sweater, global is refused"
+
+# ---------------------------------------------------------------------------------------
+section "a server configured elsewhere at the same address is named, not silently doubled"
+# Fall-through lets servers from the CLI's own config and the folder in too. The CLI dedupes a
+# claude.ai connector against a bound server, but not these, so two logins for one provider
+# would load side by side. The launcher names each one.
+cat > "$GRANDMA_HOME/globex/mcp.json" <<'EOF'
+{"mcpServers":{"notion":{"type":"http","url":"https://mcp.notion.example/mcp"}}}
+EOF
+PROJ="$TMP/some-folder"; mkdir -p "$PROJ"
+printf '{"mcpServers":{"my-notion":{"type":"http","url":"https://mcp.notion.example/mcp"},"other":{"type":"http","url":"https://other.example/mcp"}}}' > "$HOME/.claude.json"
+LAST_OUT="$(cd "$PROJ" && "$GBIN" globex </dev/null 2>&1)"
+assert_contains "my-notion (user config) points at the same server as globex__notion" "a user-scope server at the same address is named"
+assert_not_contains "other (" "a server at a different address is left alone"
+assert_contains "grandma mcp strict globex on" "and it says how to keep the sweater to its own"
+
+PROJP="$(cd "$PROJ" && pwd -P)"
+jq -n --arg d "$PROJP" '{projects: {($d): {mcpServers: {"proj-notion": {type:"http", url:"https://mcp.notion.example/mcp"}}}}}' > "$HOME/.claude.json"
+LAST_OUT="$(cd "$PROJ" && "$GBIN" globex </dev/null 2>&1)"
+assert_contains "proj-notion (this folder, in the CLI config)" "a server the CLI config holds for this folder is named"
+
+rm -f "$HOME/.claude.json"
+printf '{"mcpServers":{"folder-notion":{"type":"http","url":"https://mcp.notion.example/mcp"}}}' > "$PROJ/.mcp.json"
+LAST_OUT="$(cd "$PROJ" && "$GBIN" globex </dev/null 2>&1)"
+assert_contains "folder-notion (this folder, .mcp.json)" "a folder's own .mcp.json is named"
+
+capture env "$GBIN" mcp strict globex on
+LAST_OUT="$(cd "$PROJ" && "$GBIN" globex </dev/null 2>&1)"
+assert_not_contains "points at the same server" "a strict sweater has nothing to warn about, nothing else loads"
+rm -f "$PROJ/.mcp.json" "$GRANDMA_HOME/globex/mcp.json"
 
 # ---------------------------------------------------------------------------------------
 section "two sweaters holding the same provider never share a login"

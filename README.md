@@ -138,13 +138,16 @@ project CLAUDE.md   deep per-project instructions            auto-loaded in that
 
 ### Connections, bound to one sweater
 
-A sweater can own its MCP servers, and they reach every project in that sweater and nothing outside it. Put a Notion workspace on `acme` and it is there in every acme project and in none of your others. Two sweaters can hold two different Notion workspaces, or two different mail accounts, without either one seeing the other.
+A sweater can own its MCP servers, and they reach every project in that sweater and no other sweater. Put a Notion workspace on `acme` and it is there in every acme project and in none of your others. Two sweaters can hold two different Notion workspaces, or two different mail accounts, without either one seeing the other.
+
+Anything a sweater does not bind still comes from your account's own connectors, the ones you connected in Claude. So `acme` can bind its own Notion and keep getting Gmail and Drive from your account without setting them up again. When a bound server and a connector point at the same service, the CLI drops the connector and the sweater's own copy wins.
 
 ```sh
 grandma mcp add acme notion https://mcp.notion.com/mcp   # this sweater only
 grandma mcp add global gmail https://mail.example/mcp    # every sweater
 grandma mcp list acme                                    # what an acme session gets
 grandma mcp remove acme notion
+grandma mcp strict acme on                               # only acme's own servers, no connectors
 ```
 
 Then `grandma acme` and sign in once with `/mcp` inside the session.
@@ -169,7 +172,11 @@ grandma stores the reference, never the token.
 
 Credentials for those come from the provider. For Google that means an OAuth client of your own, and if the consent screen offers Internal for your own Workspace domain, take it: nothing to verify and it lasts, though an Internal client only admits accounts on that one domain, so a second domain needs its own client bound to its own sweater.
 
-Isolation is the CLI's own `--strict-mcp-config`, not a convention: a bound session sees exactly the composed set and ignores every other source, including whatever is configured in the project folder. That cuts both ways, so it is worth knowing before you start: the first server you bind to a sweater also shuts that sweater's account connectors out, and grandma says so at the time. Anything you want everywhere goes in `global/mcp.json`. A sweater that binds nothing passes no flags at all, so nothing changes until you use this. Turn it off for one run with `GRANDMA_NO_MCP=1`.
+Google gates its hosted MCP servers on the Cloud project behind that client, and sign-in succeeds whether or not the gates are open, so the failure shows up later as "tools fetch failed". The project needs the Gmail API, the separate Gmail MCP API (`gmailmcp.googleapis.com`), and enrollment in the Google Workspace Developer Preview Program, which Google approves on its own schedule. Drive is the same with the Drive API and `drivemcp.googleapis.com`. If you only need one Google account, connecting Gmail and Drive in Claude and leaving them unbound here is much less work.
+
+Without strict, a server you configured some other way (in the CLI's user config, in its entry for the project folder, or in the folder's `.mcp.json`) also loads. If one of those points at the same service as a server the sweater binds, both would load with two different logins, so grandma names it at launch and says where it lives. A strict sweater runs with the CLI's own `--strict-mcp-config`: it sees exactly its own servers plus global ones and ignores every other source, connectors included. Use it for a sweater that must never touch anything else, a client's workspace for instance.
+
+Anything you want everywhere goes in `global/mcp.json`. A sweater that binds nothing passes no flags at all, so nothing changes until you use this. Turn it off for one run with `GRANDMA_NO_MCP=1`.
 
 Credentials are never written into these files. An OAuth server needs only its address, and the login lives in the CLI's own credential store outside your memory repo. A server that needs a key reads it from the environment: pass `--header 'Authorization: Bearer $MY_TOKEN'` and grandma stores the reference. Hand it the token itself and it refuses, because your memory home is a git repo you may push.
 

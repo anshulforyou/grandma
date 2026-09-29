@@ -15,7 +15,7 @@
 #   grandma ingest [sweater] [--root]  catalog a folder of projects into a sweater
 #   grandma watch <start|status|...>   analysis campaigns over your sessions
 #   grandma knit <share|pull|list>     share a project's memory with a teammate
-#   grandma mcp <list|add|remove>      bind MCP servers to one sweater
+#   grandma mcp <list|add|remove|strict> bind MCP servers to one sweater
 #   grandma test [sweater]             verify the context-integrity invariants
 #   grandma doctor                     check dependencies and memory-home health
 #   grandma completions <bash|zsh|fish> print the shell tab-completion script

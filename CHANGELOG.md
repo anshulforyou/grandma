@@ -14,9 +14,12 @@
   Global servers arrive under their own name and share one login everywhere. A sweater's servers
   are namespaced to it, which is what gives each its own stored login, since a login is keyed by
   server name and address. Naming a server in a sweater that also exists globally replaces it
-  there and leaves the global one alone for everyone else. The isolation is the CLI's own strict
-  mode rather than a convention, so a bound session ignores every other source including whatever
-  the project folder has configured. A sweater that binds nothing passes no flags at all, so
+  there and leaves the global one alone for everyone else. Anything a sweater does not bind still
+  comes from the account's own connectors, and the CLI drops a connector that points at the same
+  service as a bound server, so the sweater's copy wins rather than appearing twice. A server
+  configured elsewhere at the same address as a bound one is named at launch. `grandma mcp strict
+  <sweater> on` switches a sweater to the CLI's own strict mode, where it sees only its own servers
+  and ignores every other source. A sweater that binds nothing passes no flags at all, so
   nothing changes until you use this, and `GRANDMA_NO_MCP=1` turns it off for a run. No credential
   is ever written into these files: an OAuth server needs only its address, and one that needs a
   key should read it from the environment, because a memory home is a git repo you may push.

@@ -646,13 +646,25 @@ read_secret() {
 
 # ------------------------------------------------------------------ mcp binding ----
 # A sweater can bind MCP servers, and they reach every project in that sweater and nothing
-# outside it. Isolation is the CLI's own `--strict-mcp-config`, which ignores every other MCP
-# source, so this is a hard boundary rather than a convention, the same way sweater memory is.
+# outside it. Anything the sweater does NOT bind falls through to what the CLI would load
+# anyway, most usefully the account's own claude.ai connectors. So a sweater can bind its own
+# Notion and still get Gmail and Drive from the account without re-creating them.
+#
+# Fall-through is safe for the case that matters because the CLI itself drops a claude.ai
+# connector whose endpoint matches a configured server that is signed in (measured: "Suppressing
+# claude.ai connector ... duplicates manually-configured <sweater>__gmail"). A bound server
+# therefore replaces the account's copy of the same provider instead of appearing beside it.
+# What fall-through does NOT stop is a server the user configured elsewhere at the same address
+# (user scope, a project entry in the CLI config, a folder's .mcp.json). mcp_shadowed finds those
+# so the launcher can name them.
+#
+# A sweater that needs hard isolation opts in with `"strict": true` in its mcp.json. The launch
+# then adds the CLI's --strict-mcp-config, which ignores every other source, connectors included.
 #
 # Two optional files, both in the CLI's own `{"mcpServers": {...}}` shape so a definition can be
 # pasted straight from a vendor's docs:
 #   $ROOT/global/mcp.json      servers every sweater gets
-#   $ROOT/<sweater>/mcp.json   servers only this sweater gets
+#   $ROOT/<sweater>/mcp.json   servers only this sweater gets, plus its optional "strict"
 #
 # Composition, in this order, and the order is the whole design:
 #   1. global servers enter under their own names
@@ -666,16 +678,22 @@ read_secret() {
 #
 # A sweater with neither file passes no flags at all, so nothing changes for anyone not using it.
 
-# mcp_compose <root> <scope> <out.json> — write the composed config. Returns 1 when there is
-# nothing to bind (caller then passes no MCP flags), 2 when jq is missing or a file is malformed.
+# mcp_compose <root> <scope> <out.json> — write the composed config and set MCP_STRICT to 1 when
+# the sweater asks for strict isolation. Returns 1 when there is nothing to pass (no servers and
+# not strict), 2 when jq is missing or a file is malformed. A strict sweater with no servers still
+# returns 0 with an empty set: strict and empty means "no MCP at all", which is a real choice.
+MCP_STRICT=0
 mcp_compose() {
-  local root="$1" scope="$2" out="$3" gfile="$1/global/mcp.json" sfile
+  local root="$1" scope="$2" out="$3" gfile="$1/global/mcp.json" sfile n
+  MCP_STRICT=0
   sfile="$(resolve_scope_dir "$scope" 2>/dev/null || true)/mcp.json"
   [[ -f "$gfile" || -f "$sfile" ]] || return 1
   command -v jq >/dev/null 2>&1 || return 2
   [[ -f "$gfile" ]] || gfile="/dev/null"
   [[ -f "$sfile" ]] || sfile="/dev/null"
-  jq -n --slurpfile g <(cat "$gfile" 2>/dev/null || echo '{}')         --slurpfile s <(cat "$sfile" 2>/dev/null || echo '{}')         --arg scope "$scope" '
+  jq -n --slurpfile g <(cat "$gfile" 2>/dev/null || echo '{}') \
+        --slurpfile s <(cat "$sfile" 2>/dev/null || echo '{}') \
+        --arg scope "$scope" '
     ($g[0].mcpServers // {}) as $G
     | ($s[0].mcpServers // {}) as $S
     # a sweater name removes the global entry it shadows, then the sweater entries are renamed
@@ -683,14 +701,43 @@ mcp_compose() {
         ( ($G | with_entries(select(.key as $k | ($S | has($k)) | not)))
           + ($S | with_entries(.key = ($scope + "__" + .key))) ) }
   ' > "$out" 2>/dev/null || return 2
-  # an empty result is the same as having nothing to bind
-  [[ "$(jq -r '.mcpServers | length' "$out" 2>/dev/null || echo 0)" -gt 0 ]] || return 1
+  if [[ "$sfile" != "/dev/null" ]] && [[ "$(jq -r '.strict // false' "$sfile" 2>/dev/null)" == "true" ]]; then
+    MCP_STRICT=1
+  fi
+  n="$(jq -r '.mcpServers | length' "$out" 2>/dev/null || echo 0)"
+  # an empty result is the same as having nothing to bind, unless strict asked for exactly that
+  [[ "$n" -gt 0 || "$MCP_STRICT" == "1" ]] || return 1
   return 0
 }
 
 # mcp_server_names <file> — space-separated names in a composed config, for the launch banner.
 mcp_server_names() {
   jq -r '.mcpServers | keys_unsorted | join(" ")' "$1" 2>/dev/null || true
+}
+
+# mcp_shadowed <composed.json> <dir> — one line per server configured OUTSIDE grandma that points
+# at the same URL as a bound one, as "<bound>\t<other>\t<where>". Those two would both load under
+# fall-through, which is the mixing a binding exists to prevent. Reads the CLI's own config
+# (${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json: user scope and this folder's project entry) and the
+# folder's .mcp.json. Read only, and silent on anything it cannot read.
+mcp_shadowed() {
+  local composed="$1" dir="$2" cfg phys
+  cfg="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"
+  phys="$(cd "$dir" 2>/dev/null && pwd -P || printf '%s' "$dir")"
+  command -v jq >/dev/null 2>&1 || return 0
+  jq -rn --slurpfile c <(cat "$composed" 2>/dev/null || echo '{}') \
+         --slurpfile u <(cat "$cfg" 2>/dev/null || echo '{}') \
+         --slurpfile p <(cat "$dir/.mcp.json" 2>/dev/null || echo '{}') \
+         --arg d "$dir" --arg pd "$phys" '
+    ($c[0].mcpServers // {}) as $B
+    | [ (($u[0].mcpServers // {}) | to_entries[] | . + {where: "user config"}),
+        (($u[0].projects[$d].mcpServers // $u[0].projects[$pd].mcpServers // {})
+           | to_entries[] | . + {where: "this folder, in the CLI config"}),
+        (($p[0].mcpServers // {}) | to_entries[] | . + {where: "this folder, .mcp.json"}) ] as $O
+    | $B | to_entries[] | select(.value.url != null) as $b
+    | $O[] | select(.value.url == $b.value.url and .key != $b.key)
+    | "\($b.key)\t\(.key)\t\(.where)"
+  ' 2>/dev/null || true
 }
 
 # prepare_sysprompt <prompt> [scope] [root] [claude-bin]

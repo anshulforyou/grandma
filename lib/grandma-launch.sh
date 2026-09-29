@@ -381,10 +381,11 @@ if [[ -n "$PROJECT" ]]; then
   esac
 fi
 
-# Bind this sweater's MCP servers, if it has any. --strict-mcp-config means the session sees
-# exactly these and nothing from the project folder, the user config or anywhere else, so one
-# sweater's Notion or mail can never appear inside another. A sweater with nothing bound passes
-# no flags at all, which is why this is invisible to everyone not using it.
+# Bind this sweater's MCP servers, if it has any. Whatever it does not bind falls through to the
+# account's own connectors, and the CLI drops a connector that duplicates a bound server, so a
+# bound provider is replaced rather than doubled. A sweater marked strict gets
+# --strict-mcp-config and sees exactly its own set and nothing else. A sweater with nothing bound
+# passes no flags at all, which is why this is invisible to everyone not using it.
 MCP_ARGS=()
 MCP_FILE=""
 # Defined and armed BEFORE anything can fail, so the composed file cannot outlive a bad exit.
@@ -398,8 +399,14 @@ if [[ "${GRANDMA_NO_MCP:-0}" != "1" ]]; then
     _mrc=0
     mcp_compose "$ROOT" "$SCOPE" "$MCP_FILE" || _mrc=$?
     case "$_mrc" in
-      0) MCP_ARGS=(--mcp-config "$MCP_FILE" --strict-mcp-config)
-         printf '  🧶 mcp: %s (this sweater only)\n' "$(mcp_server_names "$MCP_FILE")" >&2 ;;
+      0) MCP_ARGS=(--mcp-config "$MCP_FILE")
+         if [[ "$MCP_STRICT" == "1" ]]; then
+           MCP_ARGS+=(--strict-mcp-config)
+           _mnames="$(mcp_server_names "$MCP_FILE")"
+           printf '  🧶 mcp: %s (strict: nothing else loads)\n' "${_mnames:-none}" >&2
+         else
+           printf '  🧶 mcp: %s, plus your account connectors for anything not bound here\n' "$(mcp_server_names "$MCP_FILE")" >&2
+         fi ;;
       2) printf '  🧶 mcp: this sweater has servers but they could not be read, launching without them.\n' >&2
          printf '     check that %s/%s/mcp.json is valid JSON and that jq is installed.\n' "$ROOT" "$SCOPE" >&2
          rm -f "$MCP_FILE"; MCP_FILE="" ;;
@@ -601,6 +608,15 @@ printf '  ⟳ %s\n  ⟳ launching Claude Code — a few seconds; she confirms me
 # Launch in the project folder if known (so its CLAUDE.md auto-loads), else current dir.
 # --add-dir grants write access to the grandma repo so in-flight captures can land.
 [[ -n "$LAUNCH_DIR" ]] && cd "$LAUNCH_DIR"
+# Without strict, a server the user configured elsewhere at the same address as a bound one loads
+# beside it, which mixes two logins for one provider. Name it rather than letting it pass unseen.
+if [[ -n "${MCP_FILE:-}" && "${MCP_STRICT:-0}" != "1" ]]; then
+  while IFS=$'\t' read -r _mb _mo _mw; do
+    [[ -n "$_mb" ]] || continue
+    printf '  %snote%s: %s (%s) points at the same server as %s, so both load.\n' "$C_WARN" "$C_RESET" "$_mo" "$_mw" "$_mb" >&2
+    printf '        remove it there, or keep this sweater to its own: grandma mcp strict %s on\n' "$SCOPE" >&2
+  done < <(mcp_shadowed "$MCP_FILE" "$PWD")
+fi
 # WRAP the session (do not exec): we regain control when it exits and run post_session to
 # distill + offer an immediate review. GRANDMA_DEFER_DISTILL tells the SessionEnd hook to
 # stand down so the same session is not distilled twice.
