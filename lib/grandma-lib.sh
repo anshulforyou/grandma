@@ -245,7 +245,7 @@ scope_name_is_reserved() {
   q="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
   [[ -n "$q" ]] || return 0
   case "$q" in
-    init|save|review|search|ingest|watch|knit|test|doctor|completions|update|version|help) return 0 ;;
+    init|save|review|search|ingest|watch|knit|mcp|test|doctor|completions|update|version|help) return 0 ;;
     global|proposals|watches|templates) return 0 ;;
   esac
   return 1
@@ -602,6 +602,144 @@ bundle_shrink_hint() {
 # subshell, which would throw the array away.
 # Sets SYSPROMPT_TMP to the file it wrote, or empty. cleanup_sysprompt removes it, and every
 # caller must arrange that on EXIT: the file holds the user's memory and must not outlive us.
+# Colour for prose grandma prints to a human. Everything user-facing goes to stderr, so the
+# terminal test is on fd 2: colouring a piped or redirected run would put escape codes into
+# logs and into anything reading our output. NO_COLOR is the convention people already set.
+# shellcheck disable=SC2034  # C_KEY and C_WARN are read by callers in other files
+if [ -t 2 ] && [ -z "${NO_COLOR:-}" ]; then
+  C_RESET=$'\033[0m'
+  C_KEY=$'\033[1;38;5;211m'
+  C_WARN=$'\033[33m'
+else
+  C_RESET=''
+  C_KEY=''
+  C_WARN=''
+fi
+
+# open_url <url> — hand a URL to the user's browser, portably. Silent no-op when there is no
+# opener, because a setup flow must degrade to "here is the link" rather than fail.
+open_url() {
+  local u="$1"
+  if command -v open >/dev/null 2>&1; then open "$u" >/dev/null 2>&1 && return 0; fi
+  if command -v xdg-open >/dev/null 2>&1; then xdg-open "$u" >/dev/null 2>&1 && return 0; fi
+  # WSL, where the README says Windows users live
+  if command -v wslview >/dev/null 2>&1; then wslview "$u" >/dev/null 2>&1 && return 0; fi
+  if command -v powershell.exe >/dev/null 2>&1; then powershell.exe -NoProfile Start "$u" >/dev/null 2>&1 && return 0; fi
+  return 1
+}
+
+# read_secret <prompt> — read a line without echoing it. The value is returned on stdout for a
+# caller to hold in a variable and nothing else: grandma never writes it anywhere.
+read_secret() {
+  local v=""
+  printf '%s' "$1" >&2
+  if [[ -t 0 ]]; then
+    stty -echo 2>/dev/null || true
+    IFS= read -r v || true
+    stty echo 2>/dev/null || true
+    printf '\n' >&2
+  else
+    IFS= read -r v || true
+  fi
+  printf '%s' "$v"
+}
+
+# ------------------------------------------------------------------ mcp binding ----
+# A sweater can bind MCP servers, and they reach every project in that sweater and nothing
+# outside it. Anything the sweater does NOT bind falls through to what the CLI would load
+# anyway, most usefully the account's own claude.ai connectors. So a sweater can bind its own
+# Notion and still get Gmail and Drive from the account without re-creating them.
+#
+# Fall-through is safe for the case that matters because the CLI itself drops a claude.ai
+# connector whose endpoint matches a configured server that is signed in (measured: "Suppressing
+# claude.ai connector ... duplicates manually-configured <sweater>__gmail"). A bound server
+# therefore replaces the account's copy of the same provider instead of appearing beside it.
+# What fall-through does NOT stop is a server the user configured elsewhere at the same address
+# (user scope, a project entry in the CLI config, a folder's .mcp.json). mcp_shadowed finds those
+# so the launcher can name them.
+#
+# A sweater that needs hard isolation opts in with `"strict": true` in its mcp.json. The launch
+# then adds the CLI's --strict-mcp-config, which ignores every other source, connectors included.
+#
+# Two optional files, both in the CLI's own `{"mcpServers": {...}}` shape so a definition can be
+# pasted straight from a vendor's docs:
+#   $ROOT/global/mcp.json      servers every sweater gets
+#   $ROOT/<sweater>/mcp.json   servers only this sweater gets, plus its optional "strict"
+#
+# Composition, in this order, and the order is the whole design:
+#   1. global servers enter under their own names
+#   2. a sweater server with the same name REPLACES the global one for this sweater
+#   3. sweater servers are then renamed to <sweater>__<name>
+# Renaming last is what makes both rules true at once. The CLI keys a stored MCP login by server
+# NAME plus URL (measured: one `notion` credential serves four different project directories), so
+# a global server keeping its bare name shares one login everywhere, which is what global means,
+# while a sweater server gets a slot of its own and two sweaters can hold two different accounts
+# on the same provider without ever sharing a token.
+#
+# A sweater with neither file passes no flags at all, so nothing changes for anyone not using it.
+
+# mcp_compose <root> <scope> <out.json> — write the composed config and set MCP_STRICT to 1 when
+# the sweater asks for strict isolation. Returns 1 when there is nothing to pass (no servers and
+# not strict), 2 when jq is missing or a file is malformed. A strict sweater with no servers still
+# returns 0 with an empty set: strict and empty means "no MCP at all", which is a real choice.
+MCP_STRICT=0
+mcp_compose() {
+  local root="$1" scope="$2" out="$3" gfile="$1/global/mcp.json" sfile n
+  MCP_STRICT=0
+  sfile="$(resolve_scope_dir "$scope" 2>/dev/null || true)/mcp.json"
+  [[ -f "$gfile" || -f "$sfile" ]] || return 1
+  command -v jq >/dev/null 2>&1 || return 2
+  [[ -f "$gfile" ]] || gfile="/dev/null"
+  [[ -f "$sfile" ]] || sfile="/dev/null"
+  jq -n --slurpfile g <(cat "$gfile" 2>/dev/null || echo '{}') \
+        --slurpfile s <(cat "$sfile" 2>/dev/null || echo '{}') \
+        --arg scope "$scope" '
+    ($g[0].mcpServers // {}) as $G
+    | ($s[0].mcpServers // {}) as $S
+    # a sweater name removes the global entry it shadows, then the sweater entries are renamed
+    | { mcpServers:
+        ( ($G | with_entries(select(.key as $k | ($S | has($k)) | not)))
+          + ($S | with_entries(.key = ($scope + "__" + .key))) ) }
+  ' > "$out" 2>/dev/null || return 2
+  if [[ "$sfile" != "/dev/null" ]] && [[ "$(jq -r '.strict // false' "$sfile" 2>/dev/null)" == "true" ]]; then
+    MCP_STRICT=1
+  fi
+  n="$(jq -r '.mcpServers | length' "$out" 2>/dev/null || echo 0)"
+  # an empty result is the same as having nothing to bind, unless strict asked for exactly that
+  [[ "$n" -gt 0 || "$MCP_STRICT" == "1" ]] || return 1
+  return 0
+}
+
+# mcp_server_names <file> — space-separated names in a composed config, for the launch banner.
+mcp_server_names() {
+  jq -r '.mcpServers | keys_unsorted | join(" ")' "$1" 2>/dev/null || true
+}
+
+# mcp_shadowed <composed.json> <dir> — one line per server configured OUTSIDE grandma that points
+# at the same URL as a bound one, as "<bound>\t<other>\t<where>". Those two would both load under
+# fall-through, which is the mixing a binding exists to prevent. Reads the CLI's own config
+# (${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json: user scope and this folder's project entry) and the
+# folder's .mcp.json. Read only, and silent on anything it cannot read.
+mcp_shadowed() {
+  local composed="$1" dir="$2" cfg phys
+  cfg="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"
+  phys="$(cd "$dir" 2>/dev/null && pwd -P || printf '%s' "$dir")"
+  command -v jq >/dev/null 2>&1 || return 0
+  jq -rn --slurpfile c <(cat "$composed" 2>/dev/null || echo '{}') \
+         --slurpfile u <(cat "$cfg" 2>/dev/null || echo '{}') \
+         --slurpfile p <(cat "$dir/.mcp.json" 2>/dev/null || echo '{}') \
+         --arg d "$dir" --arg pd "$phys" '
+    ($c[0].mcpServers // {}) as $B
+    | [ (($u[0].mcpServers // {}) | to_entries[] | . + {where: "user config"}),
+        (($u[0].projects[$d].mcpServers // $u[0].projects[$pd].mcpServers // {})
+           | to_entries[] | . + {where: "this folder, in the CLI config"}),
+        (($p[0].mcpServers // {}) | to_entries[] | . + {where: "this folder, .mcp.json"}) ] as $O
+    | $B | to_entries[] | select(.value.url != null) as $b
+    | $O[] | select(.value.url == $b.value.url and .key != $b.key)
+    | "\($b.key)\t\(.key)\t\(.where)"
+  ' 2>/dev/null || true
+}
+
 # prepare_sysprompt <prompt> [scope] [root] [claude-bin]
 prepare_sysprompt() {
   local prompt="$1" scope="${2:-}" root="${3:-}" bin="${4:-claude}" limit

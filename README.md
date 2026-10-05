@@ -136,6 +136,50 @@ project CLAUDE.md   deep per-project instructions            auto-loaded in that
 - `grandma acme billing-api` also drops you into that project so its CLAUDE.md rides along.
 - `grandma` alone shows a picker, including "describe a new sweater" where you explain a new context in plain words and grandma scaffolds it.
 
+### Connections, bound to one sweater
+
+A sweater can own its MCP servers, and they reach every project in that sweater and no other sweater. Put a Notion workspace on `acme` and it is there in every acme project and in none of your others. Two sweaters can hold two different Notion workspaces, or two different mail accounts, without either one seeing the other.
+
+Anything a sweater does not bind still comes from your account's own connectors, the ones you connected in Claude. So `acme` can bind its own Notion and keep getting Gmail and Drive from your account without setting them up again. When a bound server and a connector point at the same service, the CLI drops the connector and the sweater's own copy wins.
+
+```sh
+grandma mcp add acme notion https://mcp.notion.com/mcp   # this sweater only
+grandma mcp add global gmail https://mail.example/mcp    # every sweater
+grandma mcp list acme                                    # what an acme session gets
+grandma mcp remove acme notion
+grandma mcp strict acme on                               # only acme's own servers, no connectors
+```
+
+Then `grandma acme` and sign in once with `/mcp` inside the session.
+
+Most providers handle that sign-in themselves, and those just work: bind, launch, pick your account.
+
+A few need credentials of your own, and Google is one. Bind it the same way and grandma walks the rest:
+
+```sh
+grandma mcp add acme gmail https://gmailmcp.googleapis.com/mcp/v1
+```
+
+It opens Google's credentials page, tells you which client type to pick and which audience setting matters, takes the client ID and the secret, and does the deposit itself. grandma keeps no copy of the secret, and the deposit leaves nothing registered that another sweater would load. After that, `grandma acme` and `/mcp` signs in normally and stays signed in. Pass `--client-id` if you already have one and it skips straight to the secret.
+
+Google is not the only provider that refuses to register the CLI itself. Slack's hosted server does the same, and others will. grandma only walks you through Google today; for the rest, make a client with the provider and pass `--client-id`, or authenticate with a token instead and pass it as an environment reference:
+
+```sh
+grandma mcp add acme slack https://mcp.slack.com/mcp --header 'Authorization: Bearer $SLACK_TOKEN'
+```
+
+grandma stores the reference, never the token.
+
+Credentials for those come from the provider. For Google that means an OAuth client of your own, and if the consent screen offers Internal for your own Workspace domain, take it: nothing to verify and it lasts, though an Internal client only admits accounts on that one domain, so a second domain needs its own client bound to its own sweater.
+
+Google gates its hosted MCP servers on the Cloud project behind that client, and sign-in succeeds whether or not the gates are open, so the failure shows up later as "tools fetch failed". The project needs the Gmail API, the separate Gmail MCP API (`gmailmcp.googleapis.com`), and enrollment in the Google Workspace Developer Preview Program, which Google approves on its own schedule. Drive is the same with the Drive API and `drivemcp.googleapis.com`. If you only need one Google account, connecting Gmail and Drive in Claude and leaving them unbound here is much less work.
+
+Without strict, a server you configured some other way (in the CLI's user config, in its entry for the project folder, or in the folder's `.mcp.json`) also loads. If one of those points at the same service as a server the sweater binds, both would load with two different logins, so grandma names it at launch and says where it lives. A strict sweater runs with the CLI's own `--strict-mcp-config`: it sees exactly its own servers plus global ones and ignores every other source, connectors included. Use it for a sweater that must never touch anything else, a client's workspace for instance.
+
+Anything you want everywhere goes in `global/mcp.json`. A sweater that binds nothing passes no flags at all, so nothing changes until you use this. Turn it off for one run with `GRANDMA_NO_MCP=1`.
+
+Credentials are never written into these files. An OAuth server needs only its address, and the login lives in the CLI's own credential store outside your memory repo. A server that needs a key reads it from the environment: pass `--header 'Authorization: Bearer $MY_TOKEN'` and grandma stores the reference. Hand it the token itself and it refuses, because your memory home is a git repo you may push.
+
 grandma hands the assembled memory to the CLI as a file rather than on the command line, because a single command-line argument is capped at 128 KB on Linux and the whole command line at about a megabyte on macOS, and a memory home can outgrow either. On a CLI too old to take a file it falls back to the command line, checks the size first, and explains what to shrink instead of leaving you with the shell's `Argument list too long`. Force that older path with `GRANDMA_NO_PROMPT_FILE=1`, cap the one-off capability check with `GRANDMA_PROBE_TIMEOUT` (5 seconds by default), and silence the warning about a mis-tiered log with `GRANDMA_NO_SIZE_WARN=1`.
 
 Memory lives in `GRANDMA_HOME` (default `~/.grandma`), a git repo that belongs to you. The engine never stores your data next to its own code.

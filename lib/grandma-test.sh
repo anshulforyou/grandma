@@ -307,6 +307,37 @@ grep -q 'log.md' "$ENGINE/prompts/capture.md" 2>/dev/null || {
   bad "capture doctrine does not warn against a flat log.md"; bl_ok=0; }
 [[ "$bl_ok" == "1" ]] && pass "bundle transport is file-based, guarded, and logs route to log/<date>.md"
 
+# ---- 18. A sweater's MCP binding keeps the promises it makes ----
+# Unbound providers fall through to the account's connectors by design. What must never happen is
+# a sweater that asked for strict losing it: --mcp-config ADDS servers to whatever the CLI already
+# has, and only --strict-mcp-config makes it replace them. So any file that passes a composed
+# config must also carry the strict flag and read MCP_STRICT to decide it. And nothing may ever be
+# registered at the CLI's user scope, because that loads in every sweater, strict or not.
+echo "== 18. a sweater's MCP binding keeps its strict setting and never leaks through user scope =="
+mc_ok=1
+# Comments are stripped first. A note that merely mentions the flag must not be able to satisfy
+# this check, which is the same reason invariant 16 strips them: the first version of this passed
+# happily with the real flag deleted, because the paragraph above it still said the word.
+for _f in "$ENGINE"/lib/*.sh; do
+  case "$(basename "$_f")" in grandma-test.sh) continue ;; esac
+  _code="$(sed 's/#.*$//' "$_f" 2>/dev/null)"
+  case "$_code" in
+    *--mcp-config*)
+      case "$_code" in
+        *--strict-mcp-config*MCP_STRICT*|*MCP_STRICT*--strict-mcp-config*) ;;
+        *) bad "$(basename "$_f"): passes --mcp-config without honouring a sweater's strict setting"
+           mc_ok=0 ;;
+      esac ;;
+  esac
+  # The CLI's own user config loads in every sweater, so the engine must never put one there.
+  case "$_code" in
+    *"--scope user"*|*"-s user"*)
+      bad "$(basename "$_f"): registers an MCP server at user scope, where every sweater loads it"
+      mc_ok=0 ;;
+  esac
+done
+[[ "$mc_ok" == "1" ]] && pass "a strict sweater always gets strict mode, and nothing is registered at user scope"
+
 echo
 if [[ "$fail" == "0" ]]; then echo "grandma-test: ALL PASS"; else echo "grandma-test: FAILURES ABOVE"; fi
 exit "$fail"
