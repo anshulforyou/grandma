@@ -338,6 +338,28 @@ for _f in "$ENGINE"/lib/*.sh; do
 done
 [[ "$mc_ok" == "1" ]] && pass "a strict sweater always gets strict mode, and nothing is registered at user scope"
 
+# ---- 19. A catalog path is read in exactly one place ----
+# The catalog is synced, so its `- source:` paths come from whichever machine registered the
+# project. project_entries is where the per-machine path map is applied. A second reader would
+# hand the raw path from another machine to something that writes under it, which is how a
+# launch on a Linux box once tried to mkdir under a macOS home path.
+echo "== 19. a project's path from another machine is always translated first =="
+cp_ok=1
+for _f in "$ENGINE"/lib/*.sh "$ENGINE"/bin/grandma; do
+  case "$(basename "$_f")" in grandma-test.sh) continue ;; esac
+  _code="$(sed 's/#.*$//' "$_f" 2>/dev/null)"
+  _n="$(printf '%s\n' "$_code" | grep -c -- '- source:' || true)"
+  if [[ "$(basename "$_f")" == "grandma-lib.sh" ]]; then
+    # the reader itself, and only it: two matching lines, both inside project_entries
+    _in="$(awk '/^project_entries\(\) \{/{f=1} f && /- source:/{c++} f && /^\}/{f=0} END{print c+0}' "$_f")"
+    [[ "$_n" == "$_in" ]] || { bad "grandma-lib.sh: reads a catalog source: outside project_entries"; cp_ok=0; }
+  elif [[ "$_n" != "0" ]]; then
+    bad "$(basename "$_f"): reads a catalog source: path itself instead of going through project_entries"
+    cp_ok=0
+  fi
+done
+[[ "$cp_ok" == "1" ]] && pass "catalog paths are only read through project_entries, where the path map applies"
+
 echo
 if [[ "$fail" == "0" ]]; then echo "grandma-test: ALL PASS"; else echo "grandma-test: FAILURES ABOVE"; fi
 exit "$fail"

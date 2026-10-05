@@ -167,7 +167,9 @@ scope_working_root() {
   project_entries "$reg" | cut -f2 | python3 -c "
 import sys, os
 dirs=[l.strip() for l in sys.stdin if l.strip()]
-print(os.path.commonpath(dirs) if dirs else '')
+root=os.path.commonpath(dirs) if dirs else ''
+# a root from another machine is no root here
+print(root if root and os.path.isdir(root) else '')
 " 2>/dev/null || true
 }
 
@@ -374,7 +376,10 @@ if [[ -n "$PROJECT" ]]; then
   if [[ -z "$SCOPE_DIR" ]]; then echo "error: unknown scope '$SCOPE'" >&2; exit 1; fi
   resolve_project "$SCOPE_DIR" "$PROJECT"
   case "$RP_STATUS" in
-    OK)    LAUNCH_DIR="$RP_DIR" ;;
+    OK)    # the catalog path may be another machine's; a dry run never asks or writes
+           if [[ "${GRANDMA_DRY_RUN:-0}" == "1" ]]; then localize_project quiet || exit 1
+           else localize_project ask || exit 1; fi
+           LAUNCH_DIR="$RP_DIR" ;;
     AMBIG) echo "'$PROJECT' matches multiple projects in $SCOPE: $RP_CANDS" >&2
            echo "be more specific." >&2; exit 2 ;;
     NONE)  ONBOARD=1 ;;

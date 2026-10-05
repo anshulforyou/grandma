@@ -425,6 +425,7 @@ cmd_share() {
     AMBIG) die "'$project' matches several projects in $sweater: $RP_CANDS" ;;
     NONE)  die "no project '$project' registered in $sweater — check $(basename "$dir")/projects.md" ;;
   esac
+  localize_project quiet || die "share it from the machine that has it, or map the path."
   local src="$RP_DIR/CLAUDE.md"
   [[ -f "$src" ]] || die "'$RP_NAME' has no memory yet ($src does not exist)."
 

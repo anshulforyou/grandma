@@ -217,6 +217,19 @@ grandma watch start "why are my sessions getting longer?" --weeks 2
 
 For two weeks grandma measures every session (duration, turns, tokens, compactions, tool calls) and reads the substantial ones. When the window closes you get a notification and a grounded report: the patterns, the numbers, what to change. It found real bugs in its own development. It will find your habits too.
 
+### One memory, more than one machine
+
+Your memory home is a git repo, so it can follow you to another machine. The project catalog comes with it, and it records each project by the absolute path it had where you registered it, which is usually not where the same project lives on the second machine.
+
+Run `grandma <sweater> <project>` from inside the project's folder on the new machine and grandma notices. It works out the two roots by comparing the paths from the end, and asks once:
+
+```text
+  billing-api is at /Users/you/code/acme/billing-api on another machine.
+  use /home/you/acme for /Users/you/code/acme on this machine, for every project under it? [Y/n]
+```
+
+Say yes and every project under that root opens from anywhere on that machine. The answer lives in `~/.config/grandma/paths`, one tab-separated prefix pair per line, and stays out of your memory repo on purpose, since one machine's map would send the other machine's paths somewhere that does not exist there. A folder only stands in for a project if it has the same name and holds a `CLAUDE.md`, so standing in one project never opens another. If grandma cannot find the project at all, it stops and says so before writing anything.
+
 ## Day to day
 
 Eight recipes with real transcripts in [docs/use-cases.md](docs/use-cases.md):

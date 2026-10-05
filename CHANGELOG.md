@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Fixed: a project registered on one machine could not be opened on another. The catalog records
+  a project by its absolute path, so a memory home synced from a Mac to a Linux box pointed every
+  project at a macOS home path that does not exist there. The launch tried to create the project's
+  `.claude` folder under it, failed three times, and then died changing into it, so the session
+  never started. Ending a session there would not have helped either: the distill looked for
+  transcripts under the same missing path and found none. Paths now go through a per-machine map
+  in `~/.config/grandma/paths`, kept outside the memory repo so one machine's answer cannot
+  reach another. Launching from inside the project's folder offers to write the map for the
+  whole root at once, and a project grandma cannot find stops the launch before anything is
+  written. The hook installer will no longer create a project folder under any circumstances.
+
 - New: a sweater can bind its own MCP servers, and they reach every project in that sweater and
   nothing outside it. Put a Notion workspace on one sweater and it is there in all of that
   sweater's projects and in none of your others, so two sweaters can hold two different

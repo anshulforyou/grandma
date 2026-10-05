@@ -63,7 +63,9 @@ if [[ -n "$PROJECT" ]]; then
   [[ -z "$SCOPE_DIR" ]] && { echo "error: unknown scope '$SCOPE'" >&2; exit 1; }
   resolve_project "$SCOPE_DIR" "$PROJECT"
   case "$RP_STATUS" in
-    OK)    PROJECT_DIR="$RP_DIR"; PROJECT_NAME="$RP_NAME" ;;
+    OK)    PROJECT_NAME="$RP_NAME"
+           # on a machine where the catalog path does not exist, fall back to where we are
+           if localize_project quiet; then PROJECT_DIR="$RP_DIR"; fi ;;
     AMBIG) echo "'$PROJECT' matches multiple in $SCOPE: $RP_CANDS. Be specific." >&2; exit 2 ;;
     NONE)  echo "error: project '$PROJECT' not found in $SCOPE (onboard it first with: grandma $SCOPE $PROJECT)" >&2; exit 1 ;;
   esac

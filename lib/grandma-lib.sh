@@ -183,34 +183,64 @@ grandma_splash() {
   sleep "${GRANDMA_SPLASH_SECS:-0.7}"
 }
 
-# Emit "rawname<TAB>dir" for each project in a scope's projects.md (dir = folder holding CLAUDE.md).
+# ---- paths across machines ----
+# The catalog is synced memory, so a project's `- source:` is an absolute path from whichever
+# machine registered it, and on another machine that folder does not exist (a macOS home path
+# on a Linux box). A per-machine map translates it. One line per prefix, tab separated:
+#   <root on the other machine><TAB><the same root here>
+# It lives OUTSIDE the memory home on purpose. If it synced, one machine's map would send the
+# other machine's own paths somewhere that does not exist there, which is the bug it fixes.
+paths_map_file() { printf '%s' "${GRANDMA_PATHS_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/grandma/paths}"; }
+
+# Emit "rawname<TAB>dir<TAB>catalog-dir" for each project in a scope's projects.md, where dir is
+# the folder holding CLAUDE.md on THIS machine and catalog-dir is what the catalog says. This is
+# the only place a catalog path is read (invariant 19), so the map cannot be bypassed. The
+# longest matching prefix wins, and a prefix only matches at a path boundary.
 project_entries() {
-  local reg="$1"
+  local reg="$1" map
   [[ -f "$reg" ]] || return 0
-  awk '
+  map="$(paths_map_file)"; [[ -f "$map" ]] || map="/dev/null"
+  # The map is read in BEGIN, not as a first input file: with no map the stand-in is /dev/null,
+  # and an empty first file leaves FNR == NR true for every catalog line, which swallowed them all.
+  awk -v mapf="$map" '
+    BEGIN {
+      while ((getline line < mapf) > 0) {
+        if (line ~ /^[ \t]*(#|$)/) continue
+        n = split(line, kv, "\t"); if (n < 2 || kv[1] == "" || kv[2] == "") continue
+        from[++nm] = kv[1]; to[nm] = kv[2]
+      }
+      close(mapf)
+    }
     /^## / { raw=substr($0,4); sub(/[ \t]+$/,"",raw); haveraw=1; next }
     /^- source:/ && haveraw==1 {
       src=$0; sub(/^- source:[ \t]*/,"",src); sub(/[ \t]+$/,"",src);
-      dir=src; sub(/\/[^\/]*$/,"",dir);
-      print raw "\t" dir; haveraw=0
+      cat=src; sub(/\/[^\/]*$/,"",cat);
+      dir=cat; best=0
+      for (i = 1; i <= nm; i++) {
+        f = from[i]; sub(/\/+$/, "", f); L = length(f)
+        if (L > best && (cat == f || substr(cat, 1, L + 1) == f "/")) {
+          t = to[i]; sub(/\/+$/, "", t); dir = t substr(cat, L + 1); best = L
+        }
+      }
+      print raw "\t" dir "\t" cat; haveraw=0
     }
   ' "$reg"
 }
 
 # Fuzzy-resolve a project name against a scope dir's registry.
-# Sets RP_STATUS (OK|AMBIG|NONE), RP_NAME, RP_DIR, RP_CANDS.
-# shellcheck disable=SC2034  # RP_STATUS/RP_NAME/RP_DIR/RP_CANDS are outputs read by callers
+# Sets RP_STATUS (OK|AMBIG|NONE), RP_NAME, RP_DIR (this machine), RP_CATALOG_DIR, RP_CANDS.
+# shellcheck disable=SC2034  # RP_* are outputs read by callers
 resolve_project() {
-  local reg="$1/projects.md" q raw dir nraw sc best=0 nbest=0
+  local reg="$1/projects.md" q raw dir catd nraw sc best=0 nbest=0
   q="$(norm "$2")"
-  RP_STATUS=NONE; RP_NAME=""; RP_DIR=""; RP_CANDS=""
+  RP_STATUS=NONE; RP_NAME=""; RP_DIR=""; RP_CATALOG_DIR=""; RP_CANDS=""
   [[ -z "$q" ]] && return
   # Rank each candidate and keep only the best tier, so a strong match beats a weak one
   # instead of colliding into AMBIG. Tiers: 4 exact, 3 the name starts with the query
   # (rainforest-midnight (...) for 'rainforest-midnight'), 2 the query is somewhere in the
   # name, 1 the name is a fragment of the query (the weak 'rainforest' case). Only true ties
   # at the top tier are ambiguous.
-  while IFS=$'\t' read -r raw dir; do
+  while IFS=$'\t' read -r raw dir catd; do
     [[ -z "$raw" ]] && continue
     nraw="$(norm "$raw")"
     sc=0
@@ -220,12 +250,73 @@ resolve_project() {
     elif [[ "$q" == *"$nraw"* ]]; then sc=1
     fi
     [[ "$sc" -eq 0 ]] && continue
-    if   (( sc > best )); then best=$sc; nbest=1; RP_NAME="$raw"; RP_DIR="$dir"; RP_CANDS="$raw"
-    elif (( sc == best )); then nbest=$((nbest+1)); RP_NAME="$raw"; RP_DIR="$dir"; RP_CANDS+="${RP_CANDS:+, }$raw"
+    if   (( sc > best )); then best=$sc; nbest=1; RP_NAME="$raw"; RP_DIR="$dir"; RP_CATALOG_DIR="$catd"; RP_CANDS="$raw"
+    elif (( sc == best )); then nbest=$((nbest+1)); RP_NAME="$raw"; RP_DIR="$dir"; RP_CATALOG_DIR="$catd"; RP_CANDS+="${RP_CANDS:+, }$raw"
     fi
   done < <(project_entries "$reg")
   if   [[ $nbest -eq 1 ]]; then RP_STATUS=OK
   elif [[ $nbest -gt 1 ]]; then RP_STATUS=AMBIG; fi
+}
+
+# paths_map_set <from> <to> — record a prefix on this machine, replacing any earlier line for the
+# same prefix so a correction does not leave the old one competing with it.
+paths_map_set() {
+  local from="$1" to="$2" map tmp
+  map="$(paths_map_file)"
+  mkdir -p "$(dirname "$map")" 2>/dev/null || return 1
+  tmp="$(mktemp "${TMPDIR:-/tmp}/grandma-paths.XXXXXX")" || return 1
+  if [[ -f "$map" ]]; then awk -F'\t' -v f="$from" '$1 != f' "$map" > "$tmp"; fi
+  printf '%s\t%s\n' "$from" "$to" >> "$tmp"
+  mv "$tmp" "$map"
+}
+
+# localize_project <ask|quiet> — after resolve_project said OK, make RP_DIR a folder that exists
+# on this machine, or fail. Returns 1 with a message when it cannot, and the caller must then
+# stop: every later step writes under RP_DIR, and a missing one used to mean a mkdir under the
+# other machine's path and a launch that died on cd.
+#
+# When the catalog folder is missing, the folder we are standing in stands for the project only
+# if it has the same NAME and holds a CLAUDE.md. A CLAUDE.md alone is not enough: standing in
+# project B and asking for project A must not launch A inside B. The common tail of the two
+# paths then gives the prefix to map, so one answer covers every project under that root. In
+# ask mode, on a terminal, grandma offers to remember it. quiet never asks and never writes.
+localize_project() {
+  local mode="${1:-quiet}" here cat_pre here_pre a b go map
+  [[ -d "$RP_DIR" ]] && return 0
+  here="$(pwd -P 2>/dev/null || printf '%s' "$PWD")"
+  if [[ -f "$here/CLAUDE.md" && "$(basename "$here")" == "$(basename "$RP_CATALOG_DIR")" ]]; then
+    # strip the shared tail, one component at a time, to find the two roots
+    cat_pre="$RP_CATALOG_DIR"; here_pre="$here"
+    while [[ "$cat_pre" == */* && "$here_pre" == */* ]]; do
+      a="$(basename "$cat_pre")"; b="$(basename "$here_pre")"
+      [[ "$a" == "$b" ]] || break
+      cat_pre="$(dirname "$cat_pre")"; here_pre="$(dirname "$here_pre")"
+    done
+    RP_DIR="$here"
+    if [[ "$mode" == "ask" && -t 0 && -t 2 && "$cat_pre" != "/" && "$here_pre" != "/" ]]; then
+      printf '\n  %s is at %s on another machine.\n' "$RP_NAME" "$RP_CATALOG_DIR" >&2
+      printf '  use %s%s%s for %s%s%s on this machine, for every project under it? [Y/n] ' \
+        "$C_KEY" "$here_pre" "$C_RESET" "$C_KEY" "$cat_pre" "$C_RESET" >&2
+      IFS= read -r go || go=""
+      if [[ "${go:-y}" =~ ^[Yy]?$ ]]; then
+        if paths_map_set "$cat_pre" "$here_pre"; then
+          printf '  saved to %s. projects under it open from here on this machine.\n\n' "$(paths_map_file)" >&2
+        else
+          printf '  could not save that, using this folder for this run only.\n\n' >&2
+        fi
+      else
+        printf '  using this folder for this run only.\n\n' >&2
+      fi
+    elif [[ "$mode" == "ask" ]]; then
+      printf '  %s is not at %s on this machine, using this folder.\n' "$RP_NAME" "$RP_CATALOG_DIR" >&2
+    fi
+    return 0
+  fi
+  map="$(paths_map_file)"
+  printf '  %s is registered at %s, which is not on this machine.\n' "$RP_NAME" "$RP_CATALOG_DIR" >&2
+  printf '  run this again from its folder here and grandma will map it, or add a line to %s:\n' "$map" >&2
+  printf '    <prefix on the other machine><TAB><the same folder here>\n' >&2
+  return 1
 }
 
 # scope_name_is_reserved <name> — is this name structurally unusable as a sweater?
@@ -289,6 +380,9 @@ install_hook() {
     ' 2>/dev/null)" || return 1
   [[ -n "$out" ]] || return 1
   [[ "$out" == "$(printf '%s' "$base" | jq --sort-keys . 2>/dev/null)" ]] && return 1
+  # Never create the project folder itself: only its .claude inside one that exists. A path from
+  # another machine once made this mkdir under a root that is not there.
+  [[ -d "$(dirname "$(dirname "$cfg")")" ]] || return 1
   mkdir -p "$(dirname "$cfg")"
   printf '%s' "$out" > "$cfg.tmp" 2>/dev/null && mv "$cfg.tmp" "$cfg"
 }
