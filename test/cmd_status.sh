@@ -25,13 +25,20 @@ assert_contains "1 pending proposal" "counts the kebab sweater's pending proposa
 assert_not_contains "unbound variable" "survives set -u"
 
 section "status — a proposal belongs to the sweater its header names, not a prefix"
-# home-ops-<stamp>.md must never be counted under a sweater called "home", and globex
-# owns no proposals at all, so its line must carry no pending count.
+# A real sweater called "home" with no proposals of its own sits next to home-ops, so a
+# filename glob on proposals/home*.md would count home-ops-<stamp>.md under it. globex
+# owns no proposals at all, so its line must carry no pending count either.
+_fx_md "$GRANDMA_HOME/home/facts.md" home facts "# home facts" "- the boiler is in the loft"
 capture env "$GBIN" status
-LAST_OUT="$(printf '%s\n' "$LAST_OUT" | grep globex)"
+STATUS_OUT="$LAST_OUT"
+LAST_OUT="$(printf '%s\n' "$STATUS_OUT" | grep -E '^  home ')"
+assert_contains "0 projects" "the home sweater is listed"
+assert_not_contains "pending" "home-ops's proposal is not counted under home"
+LAST_OUT="$(printf '%s\n' "$STATUS_OUT" | grep -E '^  home-ops ')"
+assert_contains "1 pending proposal" "and is still counted under home-ops"
+LAST_OUT="$(printf '%s\n' "$STATUS_OUT" | grep globex)"
 assert_not_contains "pending" "the kebab sweater's proposal is not attributed to globex"
-LAST_OUT="$(env "$GBIN" status 2>&1)"
-assert_not_contains "  home  " "no phantom sweater is invented from the filename prefix"
+rm -rf "${GRANDMA_HOME:?}/home"
 
 section "status — reports unsaved memory"
 printf '\n- edited\n' >> "$GRANDMA_HOME/globex/facts.md"

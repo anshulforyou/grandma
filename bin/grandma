@@ -45,6 +45,6 @@ case "$sub" in
   completions)  shift; exec "$ENGINE/lib/grandma-completions.sh" "$@" ;;
   update)       shift; exec "$ENGINE/lib/grandma-update.sh" "$@" ;;
   version|--version|-v) exec "$ENGINE/lib/grandma-update.sh" version ;;
-  help|-h|--help) sed -n '3,27p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  help|-h|--help) sed -n '3,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *)            exec "$ENGINE/lib/grandma-launch.sh" "$@" ;;
 esac
