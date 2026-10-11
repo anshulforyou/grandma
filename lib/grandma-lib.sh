@@ -450,13 +450,31 @@ notify_user() {
   # click. Otherwise fall back to osascript and put the command IN THE BODY, so the
   # notification is self-sufficient and there is no reason to click it.
   #
+  # terminal-notifier's -execute runs its command through /bin/sh with no terminal and launchd's
+  # bare PATH, so `-execute "grandma watch report x"` would either not find grandma or print the
+  # report into nothing. The click instead opens a one-shot .command file, which macOS runs in
+  # a Terminal window: the engine by absolute path, the same GRANDMA_HOME, and it deletes itself.
+  #
   # Returns 0 if a backend delivered, 1 if none did (and logs why). A detached watch tick has
   # no terminal, so failures must land in a file to be verifiable, not /dev/null.
   local root="${GRANDMA_HOME:-$HOME/.grandma}" log="${GRANDMA_HOME:-$HOME/.grandma}/.distill/notify.log" err
   local title="$1" body="$2" cmd="${3:-}"
   if command -v terminal-notifier >/dev/null 2>&1; then
+    local click=() f words=()
+    if [[ "$cmd" == grandma\ * ]] && mkdir -p "$root/.distill/clicks" 2>/dev/null \
+       && f="$(mktemp "$root/.distill/clicks/XXXXXX")" && mv "$f" "$f.command"; then
+      f="$f.command"
+      # callers pass a plain command line with no quoting inside it, so splitting on spaces
+      # recovers its words; each is re-quoted, so a slug can never become shell syntax.
+      read -ra words <<< "${cmd#grandma }"
+      { printf '#!/usr/bin/env bash\nrm -f "$0"\nexport GRANDMA_HOME=%q\n' "$root"
+        printf '%q' "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/bin/grandma"
+        printf ' %q' "${words[@]}"; printf '\n'; } > "$f"
+      chmod +x "$f"
+      click=(-execute "open $(printf '%q' "$f")")
+    fi
     if terminal-notifier -title "$title" -message "$body" -sound Glass \
-         ${cmd:+-execute "$cmd"} >/dev/null 2>&1; then return 0; fi
+         ${click[@]+"${click[@]}"} >/dev/null 2>&1; then return 0; fi
   fi
   if command -v osascript >/dev/null 2>&1; then
     local shown="$body"
