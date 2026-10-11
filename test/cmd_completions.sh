@@ -27,7 +27,7 @@ assert_contains "completions" "includes the completions subcommand itself"
 section "completions - watch commands"
 capture env "$GBIN" completions __watch_commands
 assert_rc 0 "watch command lister runs under set -u"
-for command in start tick list status report finish notify-test install-agent; do
+for command in start tick list status report finish notify-test install-agent uninstall-agent; do
   assert_contains "$command" "lists watch command '$command'"
 done
 
