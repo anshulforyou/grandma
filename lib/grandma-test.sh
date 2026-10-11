@@ -54,16 +54,27 @@ done
 
 # ---- 2. Core purity: no scope NAME hardcoded in core logic (comments excluded) ----
 echo "== 2. core purity (no scope names in core logic) =="
+# A sweater named after an ordinary word (`work`, `writing`) also matches prompt prose, and grep
+# cannot tell prose in a string from logic. purity-allow.txt in the memory home lists sweater
+# names the user has looked at and accepted, one per line, so the check stays strict for the rest.
+ALLOW="$ROOT/purity-allow.txt"
 allscopes=()
-while IFS= read -r s; do [[ -n "$s" ]] && allscopes+=("$s"); done < <(list_scopes)
+while IFS= read -r s; do
+  [[ -n "$s" ]] || continue
+  if [[ -f "$ALLOW" ]] && grep -qxF "$s" "$ALLOW"; then skip "'$s' is in purity-allow.txt"; continue; fi
+  allscopes+=("$s")
+done < <(list_scopes)
 namehit=0
 for f in "${CORE[@]}"; do
   [[ -f "$ENGINE/$f" ]] || continue
-  # strip full-line comments, then look for any literal scope name as a word
+  # strip comments (full-line, and trailing ` # ...` in scripts), then look for any literal scope
+  # name as a word. A match that is all uppercase is an engine identifier ($HOME, GRANDMA_HOME),
+  # never a scope literal: those are lowercase because they name a directory.
   noncomment="$(grep -vE '^[[:space:]]*#' "$ENGINE/$f")"
+  [[ "$f" == *.sh ]] && noncomment="$(printf '%s\n' "$noncomment" | sed -E 's/[[:space:]]+#[[:space:]].*$//')"
   for sc in ${allscopes[@]+"${allscopes[@]}"}; do
-    if printf '%s\n' "$noncomment" | grep -iqE "\b${sc}\b"; then
-      bad "core '$f' hardcodes scope name '$sc' in logic"; namehit=1
+    if printf '%s\n' "$noncomment" | grep -ioE "\b${sc}\b" | grep -q '[a-z]'; then
+      bad "core '$f' hardcodes scope name '$sc' in logic (prose, not logic? add '$sc' to $ALLOW)"; namehit=1
     fi
   done
 done
