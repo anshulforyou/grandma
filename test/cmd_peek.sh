@@ -19,7 +19,8 @@ ENGINE="$(cd "$HERE/.." && pwd)"
 
 PK="$ENGINE/lib/grandma-peek.sh"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-export GRANDMA_HOME="$TMP/home"; export SHELL=""
+export GRANDMA_HOME="$TMP/home" HOME="$TMP/user"; export SHELL=""
+mkdir -p "$HOME"
 make_fixture_home "$GRANDMA_HOME"
 PEEK="$GRANDMA_HOME/.peek"
 
@@ -207,6 +208,13 @@ section "peek — the CLI is clean on a home that has never run peek"
 capture env GRANDMA_HOME="$TMP/empty-home" bash -c "'$ENGINE/bin/grandma' peek"
 assert_rc 0 "empty home exits 0"
 assert_contains "has not run yet" "explains itself rather than erroring"
+
+section "peek - deterministic checks and replay"
+if python3 "$HERE/lib/peek_engine.py"; then
+  ok "deterministic checks and replay"
+else
+  fail "deterministic checks and replay"
+fi
 
 echo
 if [ "$FAILS" -eq 0 ]; then echo "cmd_peek: PASS"; else echo "cmd_peek: $FAILS FAILURE(S)"; exit 1; fi

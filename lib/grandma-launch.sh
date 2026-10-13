@@ -161,9 +161,8 @@ install_precompact_hook() {
   return 0
 }
 
-# Ensure a grandma-launched project has the three peek hooks, so each finished assistant message
-# is graded against the memory this sweater already loaded. Idempotent. Skip with GRANDMA_NO_HOOK
-# or GRANDMA_NO_PEEK.
+# Install the deterministic hooks and keep the existing shadow grader and ledger sensors.
+# Skip with GRANDMA_NO_HOOK or GRANDMA_NO_PEEK.
 #
 # MessageDisplay does the grading and the other two only feed it a ledger of what actually ran.
 # The timeouts differ for a reason: MessageDisplay's default is 10s, the tightest of any event,
@@ -175,13 +174,29 @@ install_peek_hooks() {
   local dir="$1" scope="$2" project="$3"
   [[ "${GRANDMA_NO_HOOK:-0}" == "1" || "${GRANDMA_NO_PEEK:-0}" == "1" ]] && return 0
   command -v jq >/dev/null 2>&1 || return 0
-  local script="$ENGINE/lib/grandma-peek.sh" cfg="$dir/.claude/settings.local.json"
-  install_hook "$cfg" MessageDisplay "" \
-    "$script" "$(hook_cmd "$script" display "$scope" "$project")" 15 0 && GRANDMA_PEEK_INSTALLED=1
-  install_hook "$cfg" PostToolBatch "" \
-    "$script" "$(hook_cmd "$script" batch "$scope")" 10 0 && GRANDMA_PEEK_INSTALLED=1
-  install_hook "$cfg" PostToolUseFailure "" \
-    "$script" "$(hook_cmd "$script" fail "$scope")" 10 0 && GRANDMA_PEEK_INSTALLED=1
+  # Opt-in: only a project with approved checks gets the hooks. Measured at 40 to 55ms per tool
+  # call even with nothing to check, so installing them everywhere would tax every session.
+  [[ -f "$ROOT/$scope/peek/${project:-_sweater}.json" || -f "$ROOT/$scope/peek/_sweater.json" ]] || return 0
+  local cfg="$dir/.claude/settings.local.json" event mode timeout script cmd
+  for event in MessageDisplay PostToolBatch PostToolUseFailure PreToolUse UserPromptSubmit; do
+    timeout=10
+    case "$event" in
+      MessageDisplay) mode=display; timeout=15 ;;
+      PostToolBatch) mode="batch" ;;
+      PostToolUseFailure) mode=fail ;;
+      PreToolUse) mode=pre ;;
+      UserPromptSubmit) mode=prompt ;;
+    esac
+    if [[ "$mode" == display ]]; then
+      script="grandma-peek.sh"; cmd="$(hook_cmd "$script" "$mode" "$scope" "$project")"
+    else
+      # The per-tool hooks go straight to python3 -S: skipping the bash wrapper and site
+      # initialisation is most of the hook's cost. Errors stay off the user's screen.
+      script="grandma-peek-engine.py"
+      cmd="python3 -S $(hook_cmd "$script" "$mode" "$scope" "$project") 2>/dev/null || true"
+    fi
+    install_hook "$cfg" "$event" "" "$script" "$cmd" "$timeout" 0 && GRANDMA_PEEK_INSTALLED=1
+  done
   return 0
 }
 

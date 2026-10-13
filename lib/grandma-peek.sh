@@ -1,30 +1,22 @@
 #!/usr/bin/env bash
 #
-# grandma-peek — grade each assistant message against the memory you already wrote down.
-#
-# grandma loads your identity, preferences, sweater workflow and the project's CLAUDE.md into
-# every session, and then nothing checks whether any of it was followed. peek closes that loop:
-# it reads each finished assistant message plus a ledger of what actually ran, and reports only
-# what breaks a line you wrote — quoting the line.
-#
-# THIS IS v0 (shadow mode). It observes and logs. It NEVER renders anything to the screen and
-# never returns displayContent, so it cannot say anything wrong because it cannot say anything.
-# The whole v0 -> v1 switch is the `render` branch in cmd_display.
-#
-# Because v0 does not render, it does not need the verdict synchronously: the grading is detached
-# with nohup and the hook returns in ~1ms. v1 has to block for it (MessageDisplay holds the batch
-# until the hook returns), which is why latency_ms is logged from the start.
+# grandma-peek - deterministic tool checks and the MessageDisplay shadow grader.
 #
 # Hook modes (installed by grandma-launch.sh):
-#   grandma-peek.sh display <scope> [project]   MessageDisplay — grade on the final batch
-#   grandma-peek.sh batch   <scope>             PostToolBatch  — append tool calls to the ledger
-#   grandma-peek.sh fail    <scope>             PostToolUseFailure — mark a failure
-#   grandma-peek.sh grade   <jobfile>           internal: the detached child that calls the model
+#   grandma-peek.sh pre     <scope> [project]   check approved rules before a tool
+#   grandma-peek.sh prompt  <scope> [project]   record a prompt and start a turn
+#   grandma-peek.sh display <scope> [project]   grade the final message batch in shadow
+#   grandma-peek.sh batch   <scope>             append tool calls to the ledger
+#   grandma-peek.sh fail    <scope>             mark a failure
+#   grandma-peek.sh grade   <jobfile>           internal detached model call
 #
 # CLI:
-#   grandma peek [--session <id>] [--json]      what peek has logged this session
+#   grandma peek [--session <id>] [--json]      inspect the shadow grader log
+#   grandma peek replay <file> --scope <sweater> [--project <name>] [--checks <file>] [--json]
 #
-# Every path exits 0. A hook that fails must never block, slow, or corrupt a session.
+# Deterministic checks use no model. Replay shares their decision function.
+# MessageDisplay stays detached and silent until its Stop replacement is ready.
+# Hooks always exit 0 and fail open. See docs/peek.md for the checks format.
 
 set -uo pipefail
 ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -70,6 +62,7 @@ jqr() { printf '%s' "$1" | jq -r "$2" 2>/dev/null || true; }
 # ---- guards -----------------------------------------------------------------------------------
 # peek_disabled — the cheap bail-outs, checked before anything costs anything.
 peek_disabled() {
+  [[ "${GRANDMA_PEEK:-}" == "off" ]] && return 0
   [[ "${GRANDMA_NO_PEEK:-0}" == "1" ]] && return 0    # kill switch
   [[ "${GRANDMA_DISTILLING:-0}" == "1" ]] && return 0 # recursion guard: a distill/watch/peek child
   command -v jq >/dev/null 2>&1 || return 0           # no jq, no parsing
@@ -86,62 +79,8 @@ cap_tripped() {
   [[ "${recent:-0}" -ge "$CAP" ]]
 }
 
-# ---- ledger -----------------------------------------------------------------------------------
-# The ledger is what ACTUALLY ran, so a claim in a message can be checked against it. Tool output
-# is deliberately NOT retained: claims are made about what ran and whether it worked, and a full
-# tool_response would be unbounded. PostToolBatch carries no per-call success flag (verified on
-# 2.1.219), which is why PostToolUseFailure is a separate sensor rather than a convenience.
-ledger_append() {
-  local d="$1" line="$2"
-  mkdir -p "$d" 2>/dev/null || return 0
-  printf '%s\n' "$line" >> "$d/ledger.jsonl" 2>/dev/null || true
-}
-
-# tool_target <tool_name> <tool_input_json> — the one field a claim is usually about.
-tool_target() {
-  local n="$1" inp="$2" t
-  case "$n" in
-    Bash) t="$(jqr "$inp" '.command // empty')" ;;
-    Read|Edit|Write|NotebookEdit) t="$(jqr "$inp" '.file_path // empty')" ;;
-    Glob|Grep) t="$(jqr "$inp" '.pattern // empty')" ;;
-    *) t="$(jqr "$inp" '.file_path // .command // .pattern // .query // empty')" ;;
-  esac
-  printf '%s' "$(printf '%s' "$t" | tr '\n' ' ' | cut -c1-200)"
-}
-
-cmd_batch() {
-  local input d n i tgt
-  input="$(cat 2>/dev/null || true)"
-  peek_disabled && return 0
-  d="$(sdir "$(jqr "$input" '.session_id // empty')")"
-  [[ "$d" == "$PEEK_ROOT/" ]] && return 0
-  local calls; calls="$(jqr "$input" '(.tool_calls // []) | length')"
-  [[ "${calls:-0}" -gt 0 ]] 2>/dev/null || return 0
-  local k=0
-  while [[ "$k" -lt "$calls" ]]; do
-    n="$(jqr "$input" ".tool_calls[$k].tool_name // empty")"
-    i="$(printf '%s' "$input" | jq -c ".tool_calls[$k].tool_input // {}" 2>/dev/null || echo '{}')"
-    tgt="$(tool_target "$n" "$i")"
-    ledger_append "$d" "$(jq -nc --arg t "$n" --arg g "$tgt" --arg o ok \
-      '{tool:$t,target:$g,outcome:$o}' 2>/dev/null || true)"
-    k=$((k + 1))
-  done
-  return 0
-}
-
-cmd_fail() {
-  local input d n tgt err
-  input="$(cat 2>/dev/null || true)"
-  peek_disabled && return 0
-  d="$(sdir "$(jqr "$input" '.session_id // empty')")"
-  [[ "$d" == "$PEEK_ROOT/" ]] && return 0
-  n="$(jqr "$input" '.tool_name // empty')"
-  tgt="$(tool_target "$n" "$(printf '%s' "$input" | jq -c '.tool_input // {}' 2>/dev/null || echo '{}')")"
-  err="$(jqr "$input" '.tool_error // empty' | tr '\n' ' ' | cut -c1-200)"
-  ledger_append "$d" "$(jq -nc --arg t "$n" --arg g "$tgt" --arg o failed --arg e "$err" \
-    '{tool:$t,target:$g,outcome:$o,error:$e}' 2>/dev/null || true)"
-  return 0
-}
+# The deterministic worker also owns ledger serialization, keeping complete targets out of argv.
+# PostToolBatch and PostToolUseFailure retain their separate successful and failed entries.
 
 # ---- display ----------------------------------------------------------------------------------
 # The MessageDisplay hook. Claude Code holds each batch until this returns, so every non-final
@@ -312,8 +251,10 @@ Return JSON only, per your instructions."
 
   local t0 t1 out ms
   t0="$(date +%s)"
+  prepare_sysprompt "$SYS" "" "$ROOT" "$CB" || SYSPROMPT_ARGS=()
   out="$( cd "$ROOT" && GRANDMA_DISTILLING=1 "$CB" -p "$PROMPT" \
-          --model "$MODEL" --append-system-prompt "$SYS" 2>/dev/null )" || out=""
+          --model "$MODEL" ${SYSPROMPT_ARGS[@]+"${SYSPROMPT_ARGS[@]}"} 2>/dev/null )" || out=""
+  cleanup_sysprompt
   t1="$(date +%s)"
   ms=$(( (t1 - t0) * 1000 ))
 
@@ -359,7 +300,7 @@ cmd_cli() {
     case "$a" in
       --json) as_json=1 ;;
       --session) want="__next__" ;;
-      -h|--help) sed -n '3,30p' "$ENGINE/lib/grandma-peek.sh" | sed 's/^# \{0,1\}//'; return 0 ;;
+      -h|--help) sed -n '3,19p' "$ENGINE/lib/grandma-peek.sh" | sed 's/^# \{0,1\}//'; return 0 ;;
       *) [[ "$want" == "__next__" ]] && want="$a" ;;
     esac
   done
@@ -416,10 +357,16 @@ PY
   return 0
 }
 
+# One JSON worker keeps large tool inputs out of argv and shares decisions with replay.
+cmd_engine() {
+  peek_disabled && return 0
+  python3 "$ENGINE/lib/grandma-peek-engine.py" "$@" 2>/dev/null || true
+}
+
 case "${1:-}" in
+  pre|prompt|batch|fail) cmd_engine "$@" ;;
+  replay) python3 "$ENGINE/lib/grandma-peek-engine.py" "$@"; exit $? ;;
   display) shift; cmd_display "$@" ;;
-  batch)   shift; cmd_batch   "$@" ;;
-  fail)    shift; cmd_fail    "$@" ;;
   grade)   shift; cmd_grade   "$@" ;;
   *)       cmd_cli "$@" ;;
 esac
