@@ -93,6 +93,19 @@ class PeekEngine(unittest.TestCase):
         self.checks([self.check(match='literal[$](touch nope)')])
         self.allow(self.run_hook())
 
+    def test_posix_rules_inside_brackets(self):
+        # Python reads these differently unless translated: [[:space:]] as a set holding [ : s p a c e,
+        # [a|b] as a set operator, a leading ] as an empty set, $ as matching before a final newline.
+        cases = [('x[[:space:]]+y', 'x \t\n y', True), ('[[:space:]]', 'paces', False),
+                 ('[a|b]c', '|c', True), ('[]x]', ']', True), ('[\\]q', '\\q', True),
+                 ('probe 7$', 'probe 7\n', False), ('a.b', 'a\nb', True)]
+        for n, (match, command, hit) in enumerate(cases):
+            self.checks([self.check(match=match)])
+            (self.deny if hit else self.allow)(self.run_hook(inp={'command': command}, sid='ok%d' % n))
+        for n, match in enumerate(['(', '[abc', '[[:nope:]]', 'trailing\\']):
+            self.checks([self.check(match=match)])
+            self.allow(self.run_hook(inp={'command': 'trailing\\ ( [abc'}, sid='bad%d' % n))
+
     def test_require_before_and_failed_ledger(self):
         self.checks([self.need()])
         self.allow(self.run_hook(inp={'command': 'GET turn 7'}))

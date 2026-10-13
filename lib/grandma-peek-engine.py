@@ -9,7 +9,6 @@ import re
 import sys
 import time
 
-MATCHER = str(Path(__file__).with_name('grandma-peek-match.sh'))
 SUFFIX = '. Fix it and carry on, do not mention this check.'
 
 
@@ -49,8 +48,73 @@ def rows(path):
         return
 
 
+# POSIX classes, so a pattern written for grep -E keeps working. Values are set contents.
+CLASSES = {
+    'alpha': 'a-zA-Z', 'digit': '0-9', 'alnum': 'a-zA-Z0-9', 'upper': 'A-Z', 'lower': 'a-z',
+    'space': ' \\t\\n\\r\\f\\v', 'blank': ' \\t', 'xdigit': '0-9A-Fa-f',
+    'punct': re.escape('!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~'),
+    'cntrl': '\\x00-\\x1f\\x7f', 'print': '\\x20-\\x7e', 'graph': '\\x21-\\x7e',
+}
+COMPILED = {}
+
+
+def translate(pattern):
+    """Python re for an ERE. Inside brackets POSIX rules hold: classes expand, a leading ] and a
+    backslash are literal. Outside, `$` ends the whole input as with bash =~. None if invalid."""
+    out, i, n = [], 0, len(pattern)
+    while i < n:
+        char = pattern[i]
+        if char == '\\':
+            if i + 1 == n:
+                return None
+            out.append(pattern[i:i + 2])
+            i += 2
+        elif char == '$':
+            out.append('\\Z')
+            i += 1
+        elif char == '[':
+            part, j = ['['], i + 1
+            if j < n and pattern[j] == '^':
+                part.append('^')
+                j += 1
+            if j < n and pattern[j] == ']':
+                part.append('\\]')
+                j += 1
+            while j < n and pattern[j] != ']':
+                if pattern.startswith('[:', j):
+                    end = pattern.find(':]', j + 2)
+                    if end < 0 or pattern[j + 2:end] not in CLASSES:
+                        return None
+                    part.append(CLASSES[pattern[j + 2:end]])
+                    j = end + 2
+                elif pattern.startswith('[=', j) or pattern.startswith('[.', j):
+                    return None
+                else:
+                    # Escaped so Python reads them as plain members, never as set operators.
+                    part.append('\\' + pattern[j] if pattern[j] in '\\[&|~' else pattern[j])
+                    j += 1
+            if j == n:
+                return None
+            out.append(''.join(part) + ']')
+            i = j + 1
+        else:
+            out.append(char)
+            i += 1
+    return ''.join(out)
+
+
+def compile_ere(pattern):
+    if pattern not in COMPILED:
+        source = translate(pattern)
+        try:
+            COMPILED[pattern] = re.compile(source, re.DOTALL) if source is not None else None
+        except (re.error, OverflowError, RecursionError):
+            COMPILED[pattern] = None
+    return COMPILED[pattern]
+
+
 class Matches:
-    """Batch EREs in one bash 3.2 process, never in argv or a Python regex dialect."""
+    """Pattern requests in one batch. Each result is (0 hit, 1 miss, 2 invalid) and group 1."""
     def __init__(self):
         self.requests = {}
         self.results = {}
@@ -59,20 +123,15 @@ class Matches:
         self.requests[(pattern, text)] = None
 
     def run(self):
-        if not self.requests:
-            return
-        import shlex
-        import subprocess
-        script = ''.join('peek_match {} {}\n'.format(shlex.quote(p), shlex.quote(t))
-                         for p, t in self.requests)
-        script = 'source ' + shlex.quote(MATCHER) + '\n' + script
-        result = subprocess.run(['bash', '-u', '-s'], input=script.encode(),
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-        fields = result.stdout.decode().split('\0')
-        if len(fields) != 2 * len(self.requests) + 1:
-            raise ValueError('invalid ERE response')
-        for index, request in enumerate(self.requests):
-            self.results[request] = (int(fields[2 * index]), fields[2 * index + 1])
+        for pattern, text in self.requests:
+            rx = compile_ere(pattern)
+            found = rx.search(text) if rx is not None else None
+            if rx is None:
+                self.results[(pattern, text)] = (2, '')
+            elif found is None:
+                self.results[(pattern, text)] = (1, '')
+            else:
+                self.results[(pattern, text)] = (0, (found.group(1) or '') if rx.groups else '')
 
     def hit(self, pattern, text):
         return self.results[(pattern, text)][0] == 0
@@ -85,22 +144,6 @@ def has_key(key, target):
 
 def nonempty(value):
     return isinstance(value, str) and bool(value.strip()) and '\0' not in value
-
-
-def groups(pattern):
-    count, bracket, escape = 0, False, False
-    for char in pattern:
-        if escape:
-            escape = False
-        elif char == '\\':
-            escape = True
-        elif char == '[':
-            bracket = True
-        elif char == ']':
-            bracket = False
-        elif char == '(' and not bracket:
-            count += 1
-    return count
 
 
 def patterns(check):
@@ -139,7 +182,8 @@ def valid(check):
             return (check.get('window') in ('session', 'since_gate')
                     and check['needs']['tool'] in ('Read', 'Bash')
                     and ('key' not in check or (type(check['key']) is int and check['key'] == 1
-                                               and groups(check['gate']['match']) == 1)))
+                                               and compile_ere(check['gate']['match']) is not None
+                                               and compile_ere(check['gate']['match']).groups == 1)))
         return True
     return kind == 'grade_at_stop'
 

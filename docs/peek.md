@@ -25,9 +25,8 @@ entries satisfy prerequisites. `needs.tool` is `Read` (a path glob) or `Bash`
 (an ERE). Optional `key: 1` requires exactly one capture group in `gate.match`.
 Its captured value must occur in the satisfying ledger target as a whole token, so a key of 7 is not satisfied by a target naming 17.
 
-Regexes use Bash ERE semantics, including POSIX character classes. They run
-against the full input, so anchors refer to the beginning and end of that input,
-not of each line as with grep -E. Use `(^|[;&|] *)yarn` to catch a command after `cd x &&`.
+Regexes are written as ERE, the dialect of grep -E and bash `=~`, and run in Python's engine so a hook call never starts a shell. Inside brackets the POSIX rules hold: classes such as `[[:space:]]` expand, and a leading `]` or a backslash is a plain character. A pattern that does not compile, or names an unknown class, drops its check as malformed. Two differences remain from grep -E: backslash escapes outside brackets take Python's meaning (`\s`, `\d`, `\b`), and an alternation picks the first branch that matches rather than the longest, which only matters for what a `key` captures.
+Patterns run against the full input, so anchors refer to the beginning and end of that input, not of each line as with grep -E, and `.` crosses newlines. Use `(^|[;&|] *)yarn` to catch a command after `cd x &&`.
 Write and Edit checks see the new text, including all MultiEdit replacements.
 The path glob applies to file tools. Bash surface checks examine the whole
 command, since arbitrary shell commands do not have one reliable destination.
