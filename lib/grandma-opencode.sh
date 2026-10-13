@@ -148,12 +148,16 @@ plan_session() {
 }
 
 # create_session <mode> <title> <dir> <key> <file> [allow-dir...] — create the session and load the
-# text into it as instruction entries. Sets SID. Never leaves behind a session that claims to
+# text into it as instruction entries. Sets SID, and SDIR to the folder it was created in: the
+# physical path, the spelling OpenCode records its own sessions under, so a grandma session sits
+# with the user's other sessions for that folder. Never leaves behind a session that claims to
 # remember without the memory in it: a failed load deletes the session before saying why.
 create_session() {
   local mode="$1" title="$2" dir="$3" key="$4" file="$5" model rules meta n
   shift 5
-  model="$(pick_model "$dir")"
+  model="$(pick_model "$dir")"   # before resolving the path: the lookup asks both spellings
+  dir="$(oc_physical "$dir")"
+  SDIR="$dir"
   rules="$(oc_rules_allow "$ROOT" "$@")"
   meta="$(jq -nc --arg m "$mode" --arg s "${CSCOPE:-}" --arg p "${RP_NAME:-}" \
     '{grandma: {v: 1, mode: $m, scope: (if $s == "" then null else $s end), project: (if $p == "" then null else $p end)}}')"
@@ -208,7 +212,7 @@ run_doctrine_session() {
   trap 'cleanup_tmp' EXIT
   trap 'forward_tui HUP; exit 129' HUP
   trap 'forward_tui TERM; exit 143' TERM
-  run_tui "$dir" "$first"
+  run_tui "$SDIR" "$first"
   exit "$TUI_RC"
 }
 
@@ -551,7 +555,7 @@ ${TASK[*]}"
   trap 'cleanup_tmp' EXIT
   trap 'cleanup_tmp; forward_tui HUP; on_hangup' HUP
   trap 'cleanup_tmp; forward_tui TERM; on_hangup' TERM
-  run_tui "$dir" "$first"
+  run_tui "$SDIR" "$first"
   trap - HUP TERM
   post_session
   exit "$TUI_RC"

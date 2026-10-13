@@ -85,9 +85,11 @@ never retried and never handed to another CLI.
 ## Models
 
 A session grandma creates starts on `GRANDMA_OPENCODE_MODEL` (`provider/model[#variant]`) when you
-set it, otherwise on the model you last used in that folder. Leaving it to OpenCode's default would
-be simpler, and wrong whenever that default cannot answer: the first line of a remembered session
-would be an error. The distill answers on the model of the session's last turn.
+set it, otherwise on the model of the last session in that folder that succeeded. Leaving it to
+OpenCode's default would be simpler, and wrong whenever that default cannot answer: the first line
+of a remembered session would be an error. A session that failed is never inherited for the same
+reason, or one bad start would repeat on every launch. The distill answers on the model of the
+session's last turn.
 
 ## What does not carry over
 
@@ -120,6 +122,12 @@ on it.
 - The session `context` endpoint returns only what the model currently sees, which after a
   compaction is a summary plus the recent tail. The distill reads the full message history instead.
 - A session created without a model started on the configured default model.
+- OpenCode records a session under the folder's physical path, with symlinks resolved (macOS `/var`
+  is one), and lists sessions by that exact path. Grandma records its own sessions the same way, so
+  they sit with your other sessions for the folder, and it looks up both spellings when choosing a
+  model.
+- The model may ask for approval through OpenCode's question dialog rather than in prose. It holds
+  the turn open until you pick an answer, the same as any OpenCode session.
 
 ## Settings
 
@@ -144,6 +152,13 @@ cover OpenCode sessions unchanged. Invariant 19 pins what is specific to this pa
 tool-less distill, and memory that reaches the session through instruction entries and never through
 a file in a project tree. `test/cmd_opencode.sh` proves each guard fires against a fake `opencode`
 (`make_fake_opencode` in `test/lib/assert.sh`), so CI needs no OpenCode install.
+
+`test/live/opencode.sh` is the same ground covered against a real opencode: launch, live capture,
+clean exit with review and commit, both kinds of window close, compaction, a memory too big for one
+entry, both distill modes, review, onboarding, knitting, the first-run interview, routing, and model
+choice. It drives the real terminal UI through `expect` (`test/live/drive.exp`), uses a throwaway
+fixture home, deletes the sessions it creates, and defaults to Haiku. It is opt-in and never part of
+`run.sh` or CI. Run it when an OpenCode release changes, to find out whether the adapter still holds.
 
 `oc_capabilities` prints the adapter's capability flags in the shape discussed in
 [the launcher-adapter design](https://github.com/anshulforyou/grandma/discussions/13). Nothing in the

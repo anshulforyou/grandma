@@ -141,7 +141,7 @@ assert_file "$TUI" "the terminal UI was opened on that session"
 LAST_OUT="$(cat "$TUI" 2>/dev/null)"
 assert_contains "▣ memory: globex loaded" "its first message asks for the memory confirmation line"
 assert_contains "project Billing API" "naming the project"
-assert_contains "dir=$GRANDMA_HOME/projects/billing-api" "in the project folder"
+assert_contains "dir=$(cd "$GRANDMA_HOME/projects/billing-api" && pwd -P)" "in the project folder, under the path OpenCode records"
 capture ls -A "$GRANDMA_HOME/projects/billing-api"
 assert_rc 0 "the project folder is readable"
 assert_not_contains "AGENTS.md" "no memory-bearing AGENTS.md was written into the project tree"
@@ -152,6 +152,37 @@ assert_not_contains "GEMINI.md" "nor any other context file"
 leftover=0
 for f in "$TMPDIR"/grandma-oc*; do [ -e "$f" ] && leftover=$((leftover + 1)); done
 [ "$leftover" = 0 ] && ok "no private memory file outlives the session" || fail "temp memory files left behind: $(ls "$TMPDIR")"
+
+section "model — the last model used successfully, whichever spelling of the folder recorded it"
+# Found live: `opencode run` records a session under the physical path while the registry names the
+# folder through a symlink (macOS /var is one), so a lookup that asked one spelling found nothing and
+# the session started on the configured default, which could not answer. A session that failed must
+# not be inherited either, or one bad start would repeat on every launch.
+REAL="$TMP/real-svc"; mkdir -p "$REAL"; printf '# Linked Svc\n- reached through a symlink\n' > "$REAL/CLAUDE.md"
+ln -s "$REAL" "$TMP/linked-svc"
+printf '\n## Linked Svc\n- source: %s/linked-svc/CLAUDE.md\n' "$TMP" >> "$GRANDMA_HOME/globex/projects.md"
+PHYS="$(cd "$REAL" && pwd -P)"
+cat > "$ST/list.json" <<EOF
+[{"id":"ses_bad","outcome":"failed","time":{"updated":300},"model":{"providerID":"fakeprov","id":"broken-default"},"location":{"directory":"$TMP/linked-svc"}},
+ {"id":"ses_good","outcome":"succeeded","time":{"updated":200},"model":{"providerID":"fakeprov","id":"last-good"},"location":{"directory":"$PHYS"}}]
+EOF
+capture env "${OC[@]}" "$GBIN" opencode globex linked </dev/null
+assert_rc 0 "a project reached through a symlink launches"
+SID="$(last_sid)"
+capture jq -r '.model.id' "$ST/sessions/$SID.json"
+assert_contains "last-good" "the model comes from the session recorded under the physical path"
+assert_not_contains "broken-default" "and a newer session that failed is passed over"
+capture jq -r '.location.directory' "$ST/sessions/$SID.json"
+assert_contains "$PHYS" "grandma records its own session under the physical path, as OpenCode does"
+cat > "$ST/list.json" <<EOF
+[{"id":"ses_inf","outcome":"succeeded","time":{"updated":400},"metadata":{"grandma":{"role":"infer"}},"model":{"providerID":"fakeprov","id":"infer-only"},"location":{"directory":"$PHYS"}},
+ {"id":"ses_old","outcome":"succeeded","time":{"updated":100},"model":{"providerID":"fakeprov","id":"logical-good"},"location":{"directory":"$TMP/linked-svc"}}]
+EOF
+capture env "${OC[@]}" "$GBIN" opencode globex linked </dev/null
+SID="$(last_sid)"
+capture jq -r '.model.id' "$ST/sessions/$SID.json"
+assert_contains "logical-good" "the folder's other spelling is asked too, and a distill session is never inherited"
+rm -f "$ST/list.json"
 
 section "launch — a sweater too big for one entry is split, and every piece fits"
 { printf -- '---\nscope: globex\ntype: notes\nupdated: 2026-06-15\n---\n\n'

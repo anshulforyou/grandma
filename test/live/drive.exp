@@ -1,0 +1,123 @@
+#!/usr/bin/expect -f
+# drive.exp <steps-file> <log-file> <turns-helper> <command...>
+#
+# Plays the person at the terminal for one live grandma-opencode run. Timing comes from OpenCode's
+# own API (the turns helper prints how many turns the newest matching session has completed), not
+# from scraping the TUI's screen. Steps, one per line:
+#   turns N SECS                 wait until the session has completed N turns
+#   type TEXT                    type into the TUI and press Return
+#   quit                         leave the TUI (<leader>q: ctrl+x then q)
+#   plain REGEX                  wait for a plain (non-TUI) line, e.g. a launcher question
+#   answer TEXT                  answer a launcher question
+#   respond SECS                 answer post-session questions (review y, commit y) until exit
+#   goal FILE REGEX N SECS TEXT  wait for FILE to match REGEX, typing TEXT after each finished
+#                                turn while it does not (at most N times)
+#   settle SECS                  wait until the model has finished (the last message is idle)
+#   eof SECS                     wait for the program to exit
+set steps_file [lindex $argv 0]
+set logf [lindex $argv 1]
+set helper [lindex $argv 2]
+set cmd [lrange $argv 3 end]
+log_user 0
+log_file -a -noappend $logf
+set stty_init "rows 50 cols 180"
+set timeout 120
+spawn -noecho {*}$cmd
+
+# The helper prints "<completed turns> <type of the last message>".
+proc probe {} {
+  global helper
+  if {[catch {exec bash $helper} out]} { return [list 0 none] }
+  set out [string trim $out]
+  set n [lindex $out 0]
+  if {![string is integer -strict $n]} { return [list 0 none] }
+  return [list $n [lindex $out 1]]
+}
+proc turns {} { return [lindex [probe] 0] }
+# settle SECS — wait until the model has finished: the last message is an idle marker, twice in a row.
+proc settle {secs} {
+  set deadline [expr {[clock seconds] + $secs}]
+  set streak 0
+  while {[clock seconds] < $deadline} {
+    if {[lindex [probe] 1] eq "idle"} { incr streak } else { set streak 0 }
+    if {$streak >= 2} { return 1 }
+    if {[pump 3000] eq "eof"} { return 0 }
+  }
+  return 0
+}
+# pump MS — keep draining the pty so a chatty TUI never blocks on a full buffer.
+proc pump {ms} {
+  set secs [expr {max(1, $ms / 1000)}]
+  expect -timeout $secs -re {(.|\n)+} {} timeout {} eof { return eof }
+  return ok
+}
+proc wait_turns {n secs} {
+  set deadline [expr {[clock seconds] + $secs}]
+  while {[clock seconds] < $deadline} {
+    if {[turns] >= $n} { return 1 }
+    if {[pump 1000] eq "eof"} { return 0 }
+  }
+  return 0
+}
+proc tui_type {text} {
+  send -- $text
+  after 400
+  send -- "\r"
+}
+
+set f [open $steps_file]
+while {[gets $f line] >= 0} {
+  if {$line eq "" || [string index $line 0] eq "#"} continue
+  regexp {^(\S+)\s*(.*)$} $line -> op rest
+  switch -- $op {
+    turns {
+      lassign $rest n s
+      if {![wait_turns $n $s]} { puts "STEP-FAIL turns $n (saw [turns])"; exit 3 }
+    }
+    type { tui_type $rest }
+    quit { send -- "\x18"; after 400; send -- "q" }
+    plain {
+      expect {
+        -re $rest {}
+        timeout { puts "STEP-FAIL plain $rest"; exit 4 }
+        eof     { puts "STEP-FAIL eof before $rest"; exit 5 }
+      }
+    }
+    answer { send -- "$rest\r" }
+    respond {
+      set timeout $rest
+      expect {
+        -re {review now\? \[Y/n\]}                     { send "y\r"; exp_continue }
+        -re {commit these [0-9]+ file\(s\) now\? \[y/N\]} { send "y\r"; exp_continue }
+        eof     {}
+        timeout { puts "STEP-FAIL respond (no exit)"; exit 6 }
+      }
+      set timeout 120
+    }
+    goal {
+      regexp {^(\S+)\s+(\S+)\s+(\d+)\s+(\d+)\s+(.*)$} $rest -> gfile gre gmax gsecs gtext
+      set deadline [expr {[clock seconds] + $gsecs}]
+      set seen [turns]; set sent 0; set hit 0
+      while {[clock seconds] < $deadline} {
+        if {[file exists $gfile] && ![catch {exec grep -Eq $gre $gfile}]} { set hit 1; break }
+        set t [turns]
+        if {$t > $seen} {
+          set seen $t
+          if {$sent < $gmax} { incr sent; tui_type $gtext }
+        }
+        if {[pump 1000] eq "eof"} break
+      }
+      if {!$hit} { puts "STEP-FAIL goal $gfile ~ $gre"; exit 7 }
+    }
+    settle {
+      if {![settle $rest]} { puts "STEP-FAIL settle"; exit 10 }
+    }
+    eof {
+      set timeout $rest
+      expect { eof {} timeout { puts "STEP-FAIL eof"; exit 8 } }
+      set timeout 120
+    }
+    default { puts "STEP-FAIL unknown step $op"; exit 9 }
+  }
+}
+puts "STEPS-DONE"

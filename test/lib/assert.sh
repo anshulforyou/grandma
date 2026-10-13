@@ -117,7 +117,9 @@ SHIM
 #   opencode --version                                    -> a version
 #   opencode api post /api/session --data <json>          -> creates ses_fakeNNNN, stores the body
 #   opencode api get|delete /api/session/<id>             -> the stored body / deleted.log
-#   opencode api get /api/session?...                     -> one session carrying $FAKE_OC_RECENT_MODEL
+#   opencode api get /api/session?...&directory=<d>       -> the sessions in state/list.json recorded under
+#                                                            exactly <d>, as opencode lists them; without
+#                                                            that file, one carrying $FAKE_OC_RECENT_MODEL
 #   opencode api get /api/session/<id>/message?...        -> two canned transcript pages (cursor c2)
 #   opencode api put|get|delete .../instructions/entries  -> entries/<id>/<key>, puts.log; refuses a
 #                                                            value over 256 KiB exactly as opencode
@@ -178,7 +180,11 @@ case "${1:-}" in
         printf '%s' "$body" | jq -c --arg id "$id" '. + {id: $id}' > "$S/sessions/$id.json"
         jq -c '{data: .}' "$S/sessions/$id.json"; exit 0 ;;
       "GET /api/session?"*)
-        if [ -n "${FAKE_OC_RECENT_MODEL:-}" ]; then printf '{"data":[{"id":"ses_old","model":%s}]}\n' "$FAKE_OC_RECENT_MODEL"
+        if [ -f "$S/list.json" ]; then
+          enc="$(printf '%s' "$path" | sed -n 's/.*[?&]directory=\([^&]*\).*/\1/p')"
+          d="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))' "$enc")"
+          jq -c --arg d "$d" '{data: [.[] | select(.location.directory == $d)]}' "$S/list.json"
+        elif [ -n "${FAKE_OC_RECENT_MODEL:-}" ]; then printf '{"data":[{"id":"ses_old","model":%s}]}\n' "$FAKE_OC_RECENT_MODEL"
         else echo '{"data":[]}'; fi
         exit 0 ;;
       "GET /api/session/"*"/message"*)

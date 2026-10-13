@@ -228,15 +228,32 @@ oc_session_model() {
   printf '%s' "$resp" | jq -c '(.data // .).model // empty' 2>/dev/null || true
 }
 
-# oc_recent_model <dir> — the model of the newest session in <dir> that has one: what the user last
-# chose there. A session grandma creates with no model starts on the configured default, and a
-# default that cannot answer turns the very first line of a remembered session into an error.
+# oc_physical <dir> — the path with every symlink resolved: the spelling OpenCode records a folder
+# under (it keeps the process's real working directory). macOS /var is a symlink to /private/var,
+# and a project folder can be one too, so two spellings of one folder are normal.
+oc_physical() { (cd "$1" 2>/dev/null && pwd -P) || printf '%s' "$1"; }
+
+# oc_recent_model <dir> — the model of the session the user last used successfully in <dir>. A
+# session grandma creates with no model starts on the configured default, and a default that cannot
+# answer turns the very first line of a remembered session into an error. Both spellings of the
+# folder are asked, since OpenCode lists sessions by the exact path they were recorded under, and
+# grandma's own throwaway distill sessions and any session that failed are passed over: a model that
+# could not answer last time is not one to start on again.
 oc_recent_model() {
-  local resp q
-  q="$(jq -rn --arg d "$1" '$d | @uri')"
-  resp="$(oc_api get "/api/session?limit=20&directory=$q")" || return 0
-  printf '%s' "$resp" | jq -c '[(.data // [])[] | select(.metadata.grandma.role != "infer")
-    | .model | select(. != null)][0] // empty' 2>/dev/null || true
+  local d q resp line best="" bestt=0 t
+  local spellings=("$(oc_physical "$1")")
+  if [[ "${spellings[0]}" != "$1" ]]; then spellings+=("$1"); fi
+  for d in "${spellings[@]}"; do
+    q="$(jq -rn --arg d "$d" '$d | @uri')"
+    resp="$(oc_api get "/api/session?limit=20&directory=$q")" || continue
+    line="$(printf '%s' "$resp" | jq -r '[(.data // [])[] | select(.metadata.grandma.role != "infer")
+      | select(.outcome != "failed") | select(.model != null)][0]
+      | if . == null then empty else "\(.time.updated // 0) \(.model | tojson)" end' 2>/dev/null || true)"
+    [[ -n "$line" ]] || continue
+    t="${line%% *}"
+    if [[ "$t" =~ ^[0-9]+$ ]] && [[ "$t" -ge "$bestt" ]]; then bestt="$t"; best="${line#* }"; fi
+  done
+  printf '%s' "$best"
 }
 
 # oc_transcript <sid> <out.md> — the session's whole history as grandma's readable transcript, and
