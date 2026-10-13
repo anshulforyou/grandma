@@ -65,7 +65,7 @@ That clones the engine, creates your private memory home, and offers a two-minut
 git clone https://github.com/anshulforyou/grandma && cd grandma && ./bin/grandma init
 ```
 
-Requirements: [Claude Code](https://claude.com/claude-code), git, jq, python3. macOS or Linux (Windows via WSL). `grandma doctor` checks everything and tells you how to fix what is missing.
+Requirements: [Claude Code](https://claude.com/claude-code) or [OpenCode](https://opencode.ai) (see [Run it in OpenCode](#run-it-in-opencode)), git, jq, python3. macOS or Linux (Windows via WSL). `grandma doctor` checks everything and tells you how to fix what is missing.
 
 ## Update
 
@@ -217,6 +217,15 @@ grandma watch start "why are my sessions getting longer?" --weeks 2
 
 For two weeks grandma measures every session (duration, turns, tokens, compactions, tool calls) and reads the substantial ones. When the window closes you get a notification and a grounded report: the patterns, the numbers, what to change. It found real bugs in its own development. It will find your habits too.
 
+### Run it in OpenCode
+
+```sh
+grandma opencode acme billing-api     # this session, in OpenCode
+export GRANDMA_CLI=opencode           # every sweater: plain `grandma acme` now opens OpenCode
+```
+
+Or put `cli: opencode` in one sweater's frontmatter and only that sweater moves. Same memory, same doctrines, same `git diff` review queue, and the same distill when you leave. Grandma installs nothing into OpenCode to do it: memory rides in the session's own instructions, which compaction keeps and no project file ever holds. What carries over and what does not is in [docs/opencode.md](docs/opencode.md).
+
 ## Day to day
 
 Eight recipes with real transcripts in [docs/use-cases.md](docs/use-cases.md):
@@ -258,6 +267,7 @@ grandma review [sweater]         review what background distills proposed
 grandma search [sweater] <query> grep across your memory
 grandma ingest [sweater]         catalog an existing folder of projects
 grandma watch ...              analysis campaigns over your sessions
+grandma opencode <sweater> [project]  the same session, run in OpenCode
 grandma test [sweater]           verify the integrity invariants
 grandma completions bash|zsh|fish print the shell tab-completion script
 grandma knit share <sweater> <project> --to <who>   share a project's memory
@@ -272,7 +282,7 @@ grandma knit install-agent       check for shares every 60s (opt-in)
   hooks (upstream issue), so the end-of-session distill only runs on Ctrl+D. Manual
   fallback always works: `grandma save <sweater>`.
 - Sweater names that collide with subcommands (`init`, `save`, `review`, `search`,
-  `ingest`, `watch`, `knit`, `test`, `doctor`, `completions`, `update`, `version`, `help`) are
+  `ingest`, `watch`, `knit`, `mcp`, `opencode`, `test`, `doctor`, `completions`, `update`, `version`, `help`) are
   reserved, as are the folders grandma owns in your memory home (`global`, `proposals`,
   `watches`, `templates`). Grandma refuses those names when you knit a sweater rather than
   letting you make one it could never load.
@@ -354,7 +364,7 @@ Grandma is being built in three phases, and you are looking at the first two.
 ## Roadmap
 
 - **Knit round two: two-way sync, and a real merge when two memories disagree (see above)**
-- Adapters beyond Claude Code (Cursor, Codex CLI, aider)
+- Adapters beyond Claude Code and OpenCode (Cursor, Codex CLI, aider)
 - Community sweater templates (share your best sweater setups)
 - Memory rollup (old logs compress instead of growing)
 

@@ -245,10 +245,62 @@ scope_name_is_reserved() {
   q="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
   [[ -n "$q" ]] || return 0
   case "$q" in
-    init|save|review|search|ingest|watch|knit|mcp|test|doctor|completions|update|version|help) return 0 ;;
+    init|save|review|search|ingest|watch|knit|mcp|opencode|test|doctor|completions|update|version|help) return 0 ;;
     global|proposals|watches|templates) return 0 ;;
   esac
   return 1
+}
+
+# Common parent folder of a scope's registered projects (for onboarding new projects).
+scope_working_root() {
+  local reg="$1/projects.md"
+  [[ -f "$reg" ]] || return 0
+  project_entries "$reg" | cut -f2 | python3 -c "
+import sys, os
+dirs=[l.strip() for l in sys.stdin if l.strip()]
+print(os.path.commonpath(dirs) if dirs else '')
+" 2>/dev/null || true
+}
+
+# dirty_md_files — repo-relative paths of uncommitted .md changes in the memory home.
+# proposals/ and watches/ are gitignored, so this is reviewable memory only.
+dirty_md_files() {
+  git -C "$ROOT" status --porcelain -- '*.md' 2>/dev/null | while IFS= read -r _l; do
+    _f="${_l:3}"; printf '%s\n' "${_f##* -> }"
+  done
+}
+
+# md_fingerprint <relpath> — one stable line for a dirty file's working content (cksum is
+# POSIX, same output on BSD and GNU). post_session compares these against a launch-time
+# snapshot to tell files captured DURING this session from dirt that predates it.
+md_fingerprint() {
+  if [[ -f "$ROOT/$1" ]]; then printf '%s %s\n' "$(cksum < "$ROOT/$1")" "$1"
+  else printf 'deleted %s\n' "$1"; fi
+}
+
+# ---- which CLI runs a session ----
+# claude is the default and the launcher's own code. opencode runs through lib/grandma-opencode.sh
+# and its adapter. GRANDMA_CLI wins over everything, then a `cli:` line in the sweater's own
+# frontmatter, so a claude sweater and an opencode sweater can sit side by side. The engine branches
+# on the name these print, never on a sweater name, so the choice lives in memory, not in code.
+
+# grandma_cli — the CLI GRANDMA_CLI asks for, lowercased; claude when it is unset.
+grandma_cli() {
+  local v; v="$(printf '%s' "${GRANDMA_CLI:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+  printf '%s' "${v:-claude}"
+}
+
+# sweater_cli <sweater> — the CLI this sweater's sessions run in. /dev/null keeps grep off stdin
+# when the sweater holds no markdown (see list_scopes).
+sweater_cli() {
+  local dir v=""
+  if [[ -n "${GRANDMA_CLI:-}" ]]; then grandma_cli; return 0; fi
+  if dir="$(resolve_scope_dir "$1" 2>/dev/null)"; then
+    # `|| true`: no cli: line at all is the normal case, and pipefail would make it fatal.
+    v="$(grep -h -m1 -E '^cli:[[:space:]]*[A-Za-z]' "$dir"/*.md /dev/null 2>/dev/null | head -n1 \
+         | sed 's/^cli:[[:space:]]*//' | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]' || true)"
+  fi
+  printf '%s' "${v:-claude}"
 }
 
 # ---- hook installation (shared by the three installers in the launcher) ----

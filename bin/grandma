@@ -16,6 +16,7 @@
 #   grandma watch <start|status|...>   analysis campaigns over your sessions
 #   grandma knit <share|pull|list>     share a project's memory with a teammate
 #   grandma mcp <list|add|remove|strict> bind MCP servers to one sweater
+#   grandma opencode <sweater> [project] the same session, run in OpenCode (docs/opencode.md)
 #   grandma test [sweater]             verify the context-integrity invariants
 #   grandma doctor                     check dependencies and memory-home health
 #   grandma completions <bash|zsh|fish> print the shell tab-completion script
@@ -39,10 +40,11 @@ case "$sub" in
   watch)        shift; exec "$ENGINE/lib/grandma-watch.sh" "$@" ;;
   knit)         shift; exec "$ENGINE/lib/grandma-knit.sh" "$@" ;;
   mcp)          shift; exec "$ENGINE/lib/grandma-mcp.sh" "$@" ;;
+  opencode)     shift; exec "$ENGINE/lib/grandma-opencode.sh" "$@" ;;
   test)         shift; exec "$ENGINE/lib/grandma-test.sh" "$@" ;;
   completions)  shift; exec "$ENGINE/lib/grandma-completions.sh" "$@" ;;
   update)       shift; exec "$ENGINE/lib/grandma-update.sh" "$@" ;;
   version|--version|-v) exec "$ENGINE/lib/grandma-update.sh" version ;;
-  help|-h|--help) sed -n '3,27p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  help|-h|--help) sed -n '3,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *)            exec "$ENGINE/lib/grandma-launch.sh" "$@" ;;
 esac

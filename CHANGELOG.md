@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- New: `grandma opencode <sweater> [project]` runs a remembered session in OpenCode instead of
+  Claude Code. Memory is selected exactly as before and every doctrine is the same file, so a
+  sweater means the same thing in either CLI. `export GRANDMA_CLI=opencode` sends every sweater
+  there, so plain `grandma acme` opens OpenCode; a `cli: opencode` line in one sweater's
+  frontmatter moves only that sweater, and `GRANDMA_CLI` still wins. Grandma installs nothing into
+  OpenCode to do this. Memory rides in the session's own instructions, through OpenCode's API: they
+  sit beside `AGENTS.md`, compaction keeps them, and no file in your project ever holds them, so a
+  memory-bearing context file can never be committed by accident. A registered project's
+  `CLAUDE.md` rides in too, because OpenCode reads only `AGENTS.md`. The session can write your
+  memory home through a rule scoped to that one session. When you leave, grandma distills the whole
+  transcript, every page and not just what survived compaction, in a throwaway session that can use
+  no tools at all, and offers the same review it offers after a Claude Code session. Close the
+  window instead and the distill runs detached, waiting for your next launch. The claude
+  distiller's guards hold here too: a recursion guard, the circuit breaker, a per-session lock, and
+  a call that failed or timed out is never retried. `grandma opencode review` and
+  `grandma opencode save --session <id>` cover the rest, and `grandma opencode doctor` checks the
+  setup. A sweater's MCP binding, watch campaigns and ingest still need Claude Code, and the launch
+  says so where it applies. New invariant 19 pins the OpenCode path; `opencode` is now a reserved
+  sweater name. Details in docs/opencode.md.
+
 - New: a sweater can bind its own MCP servers, and they reach every project in that sweater and
   nothing outside it. Put a Notion workspace on one sweater and it is there in all of that
   sweater's projects and in none of your others, so two sweaters can hold two different
