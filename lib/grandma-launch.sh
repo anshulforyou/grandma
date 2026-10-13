@@ -22,6 +22,7 @@
 set -euo pipefail
 
 ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export GRANDMA_ENGINE="$ENGINE"
 ROOT="${GRANDMA_HOME:-$HOME/.grandma}"   # the user's private memory home
 ASSEMBLE="$ENGINE/lib/assemble.sh"
 
@@ -120,8 +121,8 @@ pick_scope() {
 }
 
 # Ensure a grandma-launched project has the SessionStart(compact) rehydrate hook, so
-# grandma's memory is restored after Claude Code auto-compacts a long session.
-# Idempotent; writes to the project's .claude/settings.local.json (personal, non-committed).
+# the working-state note returns after a long session compacts.
+# Idempotent. Writes to the project's .claude/settings.local.json (personal, non-committed).
 # Sets GRANDMA_HOOK_INSTALLED=1 when it adds the hook. Skip with GRANDMA_NO_HOOK=1.
 install_rehydrate_hook() {
   local dir="$1" scope="$2"

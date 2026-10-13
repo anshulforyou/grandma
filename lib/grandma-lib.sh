@@ -253,12 +253,13 @@ scope_name_is_reserved() {
 
 # ---- hook installation (shared by the three installers in the launcher) ----
 
-# hook_cmd <script> [args...] — a hook command line that survives being run by a shell.
+# hook_cmd <script> [args...] - resolve the engine on the machine running the hook.
 # Sweater and project names carry spaces and parentheses in the wild, and interpolating one
 # raw produced a command that died with a syntax error on every single session, silently:
 # no proposal, no checkpoint, no message. printf %q is the fix, and it is bash 3.2 safe.
 hook_cmd() {
-  local out a; out="$(printf '%q' "$1")"; shift
+  local out a
+  out='"${GRANDMA_ENGINE:-$HOME/.grandma-engine}"/lib/'"${1##*/}"; shift
   for a in "$@"; do out+=" $(printf '%q' "$a")"; done
   printf '%s' "$out"
 }
@@ -267,19 +268,18 @@ hook_cmd() {
 # Idempotent AND self-healing: it drops any existing entry that runs the same script before
 # adding the current one. Deciding "already present" by exact command match (what this used
 # to do) leaves a previously-installed BROKEN command sitting there and adds a correct one
-# beside it, so the broken one keeps firing and failing forever. Returns 0 and writes
-# nothing when the file already says exactly this. Prints nothing; the caller announces.
+# beside it, so the broken one keeps firing and failing forever. Returns 1 and writes
+# nothing when the file already says exactly this. Prints nothing, the caller announces.
 install_hook() {
   local cfg="$1" ev="$2" matcher="$3" script="$4" cmd="$5" to="$6" async="$7"
-  local base out qscript
-  qscript="$(printf '%q' "$script")"
+  local base out
   base="$(cat "$cfg" 2>/dev/null || echo '{}')"
   out="$(printf '%s' "$base" | jq --sort-keys \
-    --arg e "$ev" --arg m "$matcher" --arg s "$script" --arg qs "$qscript" --arg c "$cmd" \
+    --arg e "$ev" --arg m "$matcher" --arg s "${script##*/}" --arg c "$cmd" \
     --argjson to "$to" --argjson async "$async" '
-      def prune: map(.hooks = ((.hooks // [])
-                     | map(select(((.command // "") | startswith($s)) or
-                                  ((.command // "") | startswith($qs)) | not))))
+      def same_script: (.command // "") | split("/lib/" + $s) | .[1:]
+                       | any(test("^([[:space:]\"\u0027]|$)"));
+      def prune: map(.hooks = ((.hooks // []) | map(select(same_script | not))))
                  | map(select(((.hooks // []) | length) > 0));
       (({"type":"command","command":$c,"timeout":$to})
         + (if $async == 1 then {"async":true} else {} end)) as $h

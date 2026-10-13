@@ -147,16 +147,15 @@ else
   bad "grandma-save.sh readable transcript not under \$ROOT/.distill (headless claude -p can't read it)"
 fi
 
-# ---- 10. Capture doctrine wired into all three injection points ----
+# ---- 10. Capture doctrine wired into launch and exit distill ----
 echo "== 10. capture doctrine (passive learning) =="
 cap_ok=1
 [[ -f "$ENGINE/prompts/capture.md" ]] || { bad "prompts/capture.md missing"; cap_ok=0; }
 grep -q 'seven categories' "$ENGINE/prompts/capture.md" 2>/dev/null || { bad "capture.md lacks the category doctrine"; cap_ok=0; }
 grep -q 'prompts/capture.md' "$ENGINE/lib/grandma-launch.sh" 2>/dev/null || { bad "launch does not inject capture.md"; cap_ok=0; }
-grep -q 'prompts/capture.md' "$ENGINE/lib/grandma-rehydrate.sh" 2>/dev/null || { bad "grandma-rehydrate.sh does not re-inject capture.md after compaction"; cap_ok=0; }
 grep -q 'prompts/capture.md' "$ENGINE/lib/grandma-save.sh" 2>/dev/null || { bad "grandma-save.sh sweep does not load capture.md"; cap_ok=0; }
 grep -q -- '--add-dir "\$ROOT"' "$ENGINE/lib/grandma-launch.sh" 2>/dev/null || { bad "launch missing --add-dir for the memory repo (captures can't write)"; cap_ok=0; }
-[[ "$cap_ok" == "1" ]] && pass "capture doctrine present and wired (launch + rehydrate + sweep + writable repo)"
+[[ "$cap_ok" == "1" ]] && pass "capture doctrine present and wired (launch + sweep + writable repo)"
 
 # ---- 11. Watch machinery is guarded (no runaway LLM, no leaks) ----
 echo "== 11. watch machinery guards =="
@@ -212,7 +211,7 @@ for f in install_rehydrate_hook install_session_end_hook install_precompact_hook
   grep -A6 "^$f()" "$ENGINE/lib/grandma-launch.sh" 2>/dev/null | grep -q 'hook_cmd' \
     || { bad "$f builds its command without hook_cmd (a project name with a space breaks it silently)"; hq_ok=0; }
 done
-grep -q 'startswith($s)' "$ENGINE/lib/grandma-lib.sh" 2>/dev/null || { bad "install_hook does not prune a stale entry for the same script (a broken command would survive the fix)"; hq_ok=0; }
+grep -q 'def same_script:' "$ENGINE/lib/grandma-lib.sh" 2>/dev/null || { bad "install_hook does not prune a stale entry for the same script (a broken command would survive the fix)"; hq_ok=0; }
 [[ "$hq_ok" == "1" ]] && pass "hook commands are quoted, and a stale entry is replaced not duplicated"
 
 # ---- 15. Knit is guarded: nothing leaves without a strip, a look, and a yes ----

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fixed: installed hooks resolve the engine from `GRANDMA_ENGINE` or
+  `$HOME/.grandma-engine` at runtime. The launcher exports its resolved engine directory.
+  Installing replaces stale paths from other machines while preserving unrelated hooks.
+- Fixed: compaction rehydrate sends only the session's continuity note with a one-line
+  header. The appended system prompt already survives compaction. Context is capped at
+  9,000 characters, cut at a line boundary with a truncation notice when needed.
+  A session with no note emits no context.
+
 - New: a sweater can bind its own MCP servers, and they reach every project in that sweater and
   nothing outside it. Put a Notion workspace on one sweater and it is there in all of that
   sweater's projects and in none of your others, so two sweaters can hold two different
@@ -167,7 +175,7 @@ First public cut.
 - Project layer: fuzzy-matched projects, per-project CLAUDE.md auto-loading, guided
   project onboarding.
 - Passive learning: capture doctrine (seven categories) injected at launch,
-  re-injected after compaction, shared by the exit distiller. Review via git diff.
+  shared by the exit distiller. The appended prompt survives compaction. Review via git diff.
 - Compaction self-healing and guarded exit distills (recursion guard, circuit
   breaker, sandbox-safe transcripts).
 - grandma watch: session-analytics campaigns with mechanical metrics, capped

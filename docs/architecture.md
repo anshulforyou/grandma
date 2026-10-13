@@ -31,9 +31,13 @@ memory files, which load only for their own sweater.
    bundle without bound, which is a real failure users have hit.
 2. The project resolver fuzzy-matches `billing` against `acme/projects.md`, finds the
    folder, and the session launches inside it so the project CLAUDE.md auto-loads.
-3. The bundle plus the capture doctrine ride in via `--append-system-prompt`.
-4. Two hooks install idempotently into the project's `.claude/settings.local.json`:
-   a SessionStart(compact) rehydrator and a SessionEnd distiller.
+3. The bundle plus the capture doctrine ride in via `--append-system-prompt-file`,
+   with `--append-system-prompt` as a fallback for older CLI versions.
+4. Three hooks install idempotently into the project's `.claude/settings.local.json`:
+   a PreCompact checkpoint, a SessionStart(compact) rehydrator and a SessionEnd distiller.
+   Commands resolve `${GRANDMA_ENGINE:-$HOME/.grandma-engine}` at runtime. The launcher
+   exports its resolved engine directory, and installation replaces stale entries by
+   script basename under `/lib/` so copied settings work on another machine.
 5. Notices print first: pending proposals, uncommitted memory diffs, finished watch
    reports. Then the mascot, then the session.
 
@@ -134,10 +138,13 @@ which only matches people who made theirs public.
 
 ## Compaction self-healing
 
-Claude Code compacts long conversations, and `--append-system-prompt` content does not
-survive it. Grandma's SessionStart hook with the `compact` matcher fires right after
-each compaction and re-injects the full bundle plus doctrine. This is why a six-hour
-session does not degrade into an agent that forgot who you are.
+Claude Code compacts long conversations, but the appended system prompt survives,
+including the memory bundle and capture doctrine. The PreCompact hook saves the session's
+working state under `$GRANDMA_HOME/.compact/<session_id>.md`, using a sanitized session id.
+The SessionStart hook with the `compact` matcher restores only that continuity note with
+a one-line header. The total additionalContext is capped at 9,000 characters, cutting at
+a line boundary and adding a final truncation notice when needed. If the session has no
+note, the hook emits nothing. It does not assemble or re-send the memory bundle.
 
 ## The integrity suite
 

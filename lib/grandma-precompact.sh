@@ -4,10 +4,10 @@
 # Claude Code compacts, so grandma-rehydrate can re-inject it afterward instead of leaving
 # it to Claude Code's lossy summary.
 #
-# grandma injects STANDING memory at launch, and rehydrate restores it after a compaction.
-# But the SESSION's own evolving work (the current task, the decisions, what is already done)
-# is not in memory yet and is exactly what compaction drops. This hook distills that working
-# state into a small transient note keyed by session id; grandma-rehydrate.sh folds it back
+# grandma injects standing memory at launch, and that prompt survives compaction.
+# The session's evolving work (the current task, the decisions, what is already done)
+# is not in memory yet and can be lost in the summary. This hook distills that working
+# state into a small transient note keyed by session id. grandma-rehydrate.sh folds it back
 # in on the way out (PreCompact itself cannot inject context, only the SessionStart side can).
 #
 # Args: <scope> [project]  (baked in by the installer)
