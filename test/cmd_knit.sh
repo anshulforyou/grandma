@@ -804,9 +804,9 @@ fake_gh_invitation "$GHROOT" 77 someone "someone/grandma-knit-yard"
 : > "$TMP/notified.log"
 capture env GRANDMA_HOME="$H7" GH_FAKE_LOGIN=mate PATH="$NBIN:$PATH" "$ENGINE/lib/grandma-knit.sh" poll
 assert_rc 0 "the poll runs"
-capture cat "$TMP/notified.log"
+capture cat "$TMP/notified.log" "$H7"/.distill/clicks/*.command
 assert_contains "someone shared project memory" "a notification is sent for the new share"
-assert_contains "grandma knit pull" "and it says exactly what to run"
+assert_contains "bin/grandma knit pull" "and clicking it runs exactly what to run"
 assert_contains "grandma knit" "titled so it is obvious which part of grandma is talking"
 
 n1=$(grep -c "shared project memory" "$TMP/notified.log")
@@ -817,16 +817,26 @@ n2=$(grep -c "shared project memory" "$TMP/notified.log")
 
 section "notify_user — terminal-notifier gets the command to RUN on click"
 # The whole point of preferring it: osascript notifications have no click action, this one does.
+# -execute runs under /bin/sh with no terminal and launchd's PATH, so the click opens a .command
+# file instead, which macOS runs in a Terminal window.
 TN="$TMP/tnbin"; mkdir -p "$TN"
 printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s"\nexit 0\n' "$TMP/tn.log" > "$TN/terminal-notifier"
-chmod +x "$TN/terminal-notifier"; : > "$TMP/tn.log"
+chmod +x "$TN/terminal-notifier"; : > "$TMP/tn.log"; rm -rf "$H7/.distill/clicks"
 capture env bash -c '
   . "'"$ENGINE"'/lib/grandma-lib.sh"
   PATH="'"$TN"':$PATH"; GRANDMA_HOME="'"$H7"'"
-  notify_user "grandma test" "something happened" "grandma do-the-thing"'
+  notify_user "grandma test" "something happened" "grandma version"'
 capture cat "$TMP/tn.log"
-assert_contains "-execute grandma do-the-thing" "the command is passed as a click action"
+assert_contains "-execute open $H7/.distill/clicks/" "the click opens a file, not a bare command"
 assert_contains "-message something happened" "and the body stays clean"
+CLICK="$(ls "$H7"/.distill/clicks/*.command 2>/dev/null | head -1)"
+[ -x "$CLICK" ] && ok "the click file is executable, so open runs it" || fail "no executable click file in $H7/.distill/clicks"
+capture cat "$CLICK"
+assert_contains "$ENGINE/bin/grandma version" "it calls the engine by absolute path, not PATH"
+assert_contains "GRANDMA_HOME=$H7" "with the same memory home"
+capture env -i PATH=/usr/bin:/bin bash "$CLICK"
+assert_rc 0 "it runs under a bare PATH, like a click from launchd"
+[ ! -e "$CLICK" ] && ok "and deletes itself" || fail "click file left behind: $CLICK"
 
 section "notify_user — falls back to osascript, with the command in the body"
 # osascript cannot click, so the body has to carry the command or the notification is inert.
