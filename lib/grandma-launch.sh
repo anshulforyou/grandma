@@ -45,7 +45,7 @@ create_new_scope() {
   if [[ -n "$suggested" ]]; then
     printf "\n  Let's knit the '%s' sweater. In a sentence, what is it?\n  (a company, a client, a platform, or an area of your life)\n  > " "$suggested" >&2
   else
-    printf '\n  Describe the new sweater — a part of your life to keep memory under.\n  (a company, a client, a platform, or an area like job-search)\n  e.g. "job hunting for staff eng roles; resume at ~/docs/cv.pdf"\n  > ' >&2
+    printf '\n  Describe the new sweater — a part of your life to keep memory under.\n  (a company, a client, a platform, or an area of your life)\n  e.g. "job hunting for staff eng roles; resume at ~/docs/cv.pdf"\n  > ' >&2
   fi
   # read -e -> readline line editing (arrow keys, cursor movement) for the free-text answer
   local desc; IFS= read -e -r desc
@@ -75,7 +75,7 @@ $(cat "$ROOT/global/identity.md" "$ROOT/global/preferences.md" "$ROOT/global/sty
 first_run_onboard() {
   printf '\n  Hello, dear. I am grandma. I remember things for you so your AI never forgets.\n' >&2
   printf '  You keep memory under sweaters: one per part of your life (a job, a client,\n' >&2
-  printf '  a platform like reddit, an area like job-search). Under a sweater live your projects.\n\n' >&2
+  printf '  a platform, an area of your life). Under a sweater live your projects.\n\n' >&2
   # If they never did the interview, offer it; else go straight to making a sweater.
   # "interviewed" = identity no longer contains the template placeholder
   if command -v claude >/dev/null 2>&1 && grep -q '<your name>' "$ROOT/global/identity.md" 2>/dev/null; then

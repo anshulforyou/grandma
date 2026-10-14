@@ -163,16 +163,19 @@ The suite runs as a git pre-commit gate on the engine and in CI on macOS and Lin
 ### A known limit in the purity check
 
 Check 2 greps each sweater name as a whole word against the engine's source, and it counts
-prompt files as source. Prompt files are prose, full of example words. So a sweater named
-after an ordinary word fails it: `work` matches ten files, and `job-search`, `reddit` and
-`acme` all match too, which is unfortunate given those are the examples the README and the
-new-sweater prompt hand people.
+prompt files as source. A leak is engine LOGIC branching on a sweater name; a prompt that says
+"work through the proposals" is documentation, and grep cannot tell the two apart.
 
-This is a false positive, not a leak. A leak is engine LOGIC branching on a sweater name.
-A prompt that says "an area like job-search" is documentation. The real fix is to narrow
-check 2 to executable logic, and to purge the example words from prompt prose per the rule
-this repo already sets for itself. Until then, naming a sweater after a common word makes
-`grandma test` fail with no cure but a rename.
+Two kinds of false positive are handled in the check itself. Core files carry no concrete
+example names, so the names the docs used to suggest no longer collide. And a
+match that is all uppercase (`$HOME`, `GRANDMA_HOME`) is an identifier, never a scope literal,
+since those are lowercase because they name a directory. Trailing ` # ...` comments in scripts
+are stripped along with full-line ones.
+
+What is left is ordinary English words in prompt prose: a sweater named `work` or `writing` still
+matches. For those, `purity-allow.txt` in the memory home lists sweater names, one per line, that
+the user has looked at and accepted. An allowed name is skipped by check 2 and every other name
+stays checked. The failure line says which file to add it to.
 
 Grandma does NOT try to prevent this by refusing such names. That was tried and reverted:
 refusing every word the engine mentions rejected the names the product recommends, which is
