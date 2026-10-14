@@ -56,3 +56,18 @@ The report includes each check's original mode, would-deny count, timestamps,
 and the first 120 characters of each offending input. Recorded tool results
 build the simulated ledger even when replay would have denied their calls.
 No model runs. Replay writes only to its temporary directory.
+
+## Where checks come from
+
+Checks are derived from memory, and none of them runs until you say yes to it.
+
+```sh
+grandma peek rules build <sweater> [project]    # one model call proposes candidates
+grandma peek rules review <sweater> [project]   # y approves, n rejects, Enter skips, q stops
+grandma peek rules <sweater> [project]          # what is approved, and what went stale
+grandma peek mode <sweater> [project] <id|all> shadow|enforce
+```
+
+Build reads the sweater's memory and the project CLAUDE.md and asks the model (sonnet by default, `GRANDMA_PEEK_RULES_MODEL` to change it) for checks in the vocabulary above. Before anything is kept, each proposal must have a known kind, a pattern that compiles, an `instead` that names something to do rather than something to wait for, and a cite found word for word in the file it names. Whatever passes is stored as candidates under `.peek/candidates/`, which git ignores. A rebuild replaces the candidates and leaves out anything already approved or rejected. Build refuses to run inside another grandma model call, allows six builds an hour (`GRANDMA_PEEK_RULES_CAP`), and holds a lock so two builds never overlap. `GRANDMA_DRY_RUN=1` prints the plan and makes no call.
+
+Review walks the candidates one at a time and shows the rule, the pattern, the alternative, and how many times the check would have fired in the project's last 30 sessions (`GRANDMA_PEEK_REVIEW_SESSIONS`), quoting the calls it would have stopped. Only a typed y writes a check, into `<sweater>/peek/<project>.json`, and it lands in shadow mode. A closed input or a blank line approves nothing. Turning blocking on is a separate `peek mode` step, once the shadow log shows the check is right. The launcher prints one line when candidates are waiting.

@@ -30,7 +30,7 @@ SUBCOMMANDS="init save review search peek ingest watch knit mcp test doctor comp
 WATCH_COMMANDS="start tick list status report finish notify-test install-agent"
 KNIT_COMMANDS="share pull list contacts install-agent uninstall-agent"
 MCP_COMMANDS="list add remove strict"
-PEEK_COMMANDS="replay --session --json"
+PEEK_COMMANDS="replay rules mode --session --json"
 
 # _gc_scopes - completable first words: every sweater, then the subcommands.
 _gc_scopes() {

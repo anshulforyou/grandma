@@ -13,6 +13,10 @@
 # CLI:
 #   grandma peek [--session <id>] [--json]      inspect the shadow grader log
 #   grandma peek replay <file> --scope <sweater> [--project <name>] [--checks <file>] [--json]
+#   grandma peek rules build <sweater> [project]    propose checks from memory (one model call)
+#   grandma peek rules review <sweater> [project]   approve or reject each proposed check
+#   grandma peek rules <sweater> [project]          list approved checks, and any gone stale
+#   grandma peek mode <sweater> [project] <id|all> shadow|enforce
 #
 # Deterministic checks use no model. Replay shares their decision function.
 # MessageDisplay stays detached and silent until its Stop replacement is ready.
@@ -300,7 +304,7 @@ cmd_cli() {
     case "$a" in
       --json) as_json=1 ;;
       --session) want="__next__" ;;
-      -h|--help) sed -n '3,19p' "$ENGINE/lib/grandma-peek.sh" | sed 's/^# \{0,1\}//'; return 0 ;;
+      -h|--help) sed -n '3,23p' "$ENGINE/lib/grandma-peek.sh" | sed 's/^# \{0,1\}//'; return 0 ;;
       *) [[ "$want" == "__next__" ]] && want="$a" ;;
     esac
   done
@@ -357,6 +361,114 @@ PY
   return 0
 }
 
+# ---- rules: memory into checks ----------------------------------------------------------------
+RULES_MODEL="${GRANDMA_PEEK_RULES_MODEL:-sonnet}"
+RULES_CAP="${GRANDMA_PEEK_RULES_CAP:-6}"            # builds per hour, across the whole home
+RULES_TIMEOUT="${GRANDMA_PEEK_RULES_TIMEOUT:-600}"  # seconds; a large project CLAUDE.md is slow
+
+# rules_target <sweater> [project] — sets R_SCOPE, R_PROJECT, R_PDIR or prints why not.
+rules_target() {
+  R_SCOPE="${1:-}"; R_PROJECT="${2:-}"; R_PDIR=""
+  if [[ -z "$R_SCOPE" ]]; then echo "usage: grandma peek rules [build|review] <sweater> [project]" >&2; return 1; fi
+  local sd; sd="$(resolve_scope_dir "$R_SCOPE" 2>/dev/null || true)"
+  if [[ -z "$sd" ]]; then echo "peek rules: no sweater named $R_SCOPE" >&2; return 1; fi
+  R_SCOPE="$(basename "$sd")"
+  if [[ -n "$R_PROJECT" ]]; then
+    resolve_project "$sd" "$R_PROJECT" 2>/dev/null || true
+    if [[ "${RP_STATUS:-NONE}" != "OK" ]]; then
+      echo "peek rules: no project named $R_PROJECT in $R_SCOPE" >&2; return 1
+    fi
+    R_PROJECT="${RP_NAME:-$R_PROJECT}"; R_PDIR="${RP_DIR:-}"
+  fi
+  return 0
+}
+
+rules_py() { python3 "$ENGINE/lib/grandma-peek-rules.py" "$1" "$ROOT" "$R_SCOPE" "$R_PROJECT" "$R_PDIR" "${@:2}"; }
+
+cmd_rules_build() {
+  rules_target "$@" || return 1
+  if [[ "${GRANDMA_DISTILLING:-0}" == "1" ]]; then
+    echo "peek rules: not building inside another grandma model call (GRANDMA_DISTILLING=1)." >&2
+    return 1
+  fi
+  local memory pmd=""
+  memory="$("$ENGINE/lib/assemble.sh" "$R_SCOPE" 2>/dev/null || true)"
+  [[ -n "$R_PDIR" && -f "$R_PDIR/CLAUDE.md" ]] && pmd="$R_PDIR/CLAUDE.md"
+  if [[ -n "$pmd" ]]; then
+    memory="$memory
+
+----- BEGIN project:CLAUDE.md -----
+$(cat "$pmd" 2>/dev/null || true)
+----- END project:CLAUDE.md -----"
+  fi
+  local name="${R_PROJECT:-_sweater}"
+  if [[ "${GRANDMA_DRY_RUN:-0}" == "1" ]]; then
+    { echo "mode:       PEEK rules build"
+      echo "scope:      $R_SCOPE${R_PROJECT:+  project=$R_PROJECT}"
+      echo "memory:     ${#memory} chars${pmd:+ (includes $pmd)}"
+      echo "model:      $RULES_MODEL (one call)"
+      echo "writes:     $PEEK_ROOT/candidates/$R_SCOPE/$name.json (candidates only, nothing enforced)"; } >&2
+    return 0
+  fi
+
+  local work="$PEEK_ROOT/rules"
+  mkdir -p "$work" 2>/dev/null || { echo "peek rules: cannot write $work" >&2; return 1; }
+  # Cost cap: a stuck loop or a script calling build repeatedly stops at RULES_CAP calls an hour.
+  local recent; recent="$(find "$work" -name '.run.*' -mmin -60 2>/dev/null | wc -l | tr -d ' ')"
+  if [[ "${recent:-0}" -ge "$RULES_CAP" ]]; then
+    echo "peek rules: $recent builds in the last hour, the cap is $RULES_CAP. Try again in a while, or raise GRANDMA_PEEK_RULES_CAP." >&2
+    return 1
+  fi
+  # Lock: one build at a time across the home. Stale after 15 minutes, so a killed build cannot wedge it.
+  # Globals, not locals: the EXIT trap fires after this function has returned.
+  RB_LOCK="$work/.lock"; RB_OUT="$work/.out.$$"
+  if ! mkdir "$RB_LOCK" 2>/dev/null; then
+    if [[ $(( $(date +%s) - $(file_mtime "$RB_LOCK") )) -lt 900 ]]; then
+      echo "peek rules: another build is running ($RB_LOCK)." >&2
+      return 1
+    fi
+    rm -rf "$RB_LOCK" 2>/dev/null; mkdir "$RB_LOCK" 2>/dev/null || return 1
+  fi
+  trap 'rm -rf "$RB_LOCK" "$RB_OUT" 2>/dev/null; cleanup_sysprompt' EXIT
+  local out="$RB_OUT"
+
+  local CB; CB="$(claude_bin)" || { echo "peek rules: claude not found (set GRANDMA_PEEK_CLAUDE)." >&2; return 1; }
+  prepare_sysprompt "$(cat "$ENGINE/prompts/peek-rules.md")
+
+===== MEMORY =====
+$memory" "$R_SCOPE" "$ROOT" "$CB" || return 1
+
+  : > "$work/.run.$(date +%s).$$" 2>/dev/null || true
+  echo "peek rules: reading ${#memory} chars of memory with $RULES_MODEL, this can take a few minutes..." >&2
+  # Run from the scratch dir so the call never picks up a CLAUDE.md from wherever the user stands.
+  run_bounded "$RULES_TIMEOUT" bash -c 'cd "$1" && shift && exec "$@"' _ "$work" \
+    env GRANDMA_DISTILLING=1 "$CB" -p "Propose the checks. JSON only." --model "$RULES_MODEL" \
+    ${SYSPROMPT_ARGS[@]+"${SYSPROMPT_ARGS[@]}"} > "$out"
+  local rc=$?
+  if [[ "$rc" -ne 0 || ! -s "$out" ]]; then
+    echo "peek rules: the model call failed or timed out (exit $rc), nothing written." >&2
+    return 1
+  fi
+  rules_py ingest "$out"
+}
+
+cmd_rules() {
+  case "${1:-}" in
+    build)  shift; cmd_rules_build "$@" ;;
+    review) shift; rules_target "$@" && rules_py review ;;
+    *)      rules_target "$@" && rules_py list ;;
+  esac
+}
+
+# grandma peek mode <sweater> [project] <id|all> <shadow|enforce>
+cmd_mode() {
+  local want="${*: -1}" id
+  if [[ $# -eq 3 ]]; then rules_target "$1" || return 1; id="$2"
+  elif [[ $# -eq 4 ]]; then rules_target "$1" "$2" || return 1; id="$3"
+  else echo "usage: grandma peek mode <sweater> [project] <id|all> shadow|enforce" >&2; return 1; fi
+  rules_py mode "$id" "$want"
+}
+
 # One JSON worker keeps large tool inputs out of argv and shares decisions with replay.
 cmd_engine() {
   peek_disabled && return 0
@@ -366,6 +478,8 @@ cmd_engine() {
 case "${1:-}" in
   pre|prompt|batch|fail) cmd_engine "$@" ;;
   replay) python3 "$ENGINE/lib/grandma-peek-engine.py" "$@"; exit $? ;;
+  rules)   shift; cmd_rules "$@"; exit $? ;;
+  mode)    shift; cmd_mode  "$@"; exit $? ;;
   display) shift; cmd_display "$@" ;;
   grade)   shift; cmd_grade   "$@" ;;
   *)       cmd_cli "$@" ;;

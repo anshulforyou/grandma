@@ -216,5 +216,122 @@ else
   fail "deterministic checks and replay"
 fi
 
+# ---------------------------------------------------------------------------------------------
+# peek rules: memory becomes checks only through a typed yes. Runs after the engine tests, which
+# leave their own facts and checks behind, so this section seeds what it needs.
+G="$ENGINE/bin/grandma"
+YARD="$GRANDMA_HOME/projects/yard"
+mkdir -p "$YARD"
+printf '# yard\n- never use the leaf blower before 9am\n- never mow wet grass\n' > "$YARD/CLAUDE.md"
+printf -- '---\nscope: home-ops\ntype: facts\n---\n- trash goes out Sunday night\n' > "$GRANDMA_HOME/home-ops/facts.md"
+rm -rf "$GRANDMA_HOME/home-ops/peek" "$PEEK/candidates" "$PEEK/rules"
+CAND="$PEEK/candidates/home-ops/Yard.json"
+CHK="$GRANDMA_HOME/home-ops/peek/Yard.json"
+
+# Six proposals, fenced and wrapped in prose the way models answer. Only two are sound.
+RULES_REPLY='Here are the checks:
+```json
+{"checks":[
+{"id":"No Blower!","kind":"forbid_command","cite":"never use the leaf blower before 9am","file":"project:CLAUDE.md","instead":"Rake by hand","match":"leaf-blower"},
+{"id":"wet","kind":"forbid_command","cite":"never mow wet grass!!","file":"project:CLAUDE.md","instead":"Use the trimmer","match":"mow"},
+{"id":"vibes","kind":"forbid_vibes","cite":"never mow wet grass","file":"project:CLAUDE.md","instead":"Use the trimmer"},
+{"id":"bad","kind":"forbid_command","cite":"never mow wet grass","file":"project:CLAUDE.md","instead":"Use the trimmer","match":"("},
+{"id":"waity","kind":"forbid_command","cite":"never mow wet grass","file":"project:CLAUDE.md","instead":"Wait until it dries","match":"mow"},
+{"id":"trash","kind":"recall_on","cite":"trash goes out Sunday night","file":"home-ops/facts.md","instead":"Put the bins out","trigger":{"tool":"Bash","match":"trash"}}
+]}
+```'
+
+section "peek rules build - dry run makes no call"
+FR="$(fake_claude_json "$TMP/r0" "$RULES_REPLY")"
+capture env GRANDMA_PEEK_CLAUDE="$FR/claude" GRANDMA_DRY_RUN=1 "$G" peek rules build home-ops yard
+assert_rc 0 "dry run exits 0"
+assert_contains "PEEK rules build" "prints the plan"
+assert_not_contains "unbound variable" "survives set -u"
+[ "$(calls_of "$FR")" = "0" ] && ok "dry run never reaches the model" || fail "dry run called the model"
+assert_no_file "$CAND" "dry run writes no candidates"
+
+section "peek rules build - only sound proposals survive, none enforce"
+capture env GRANDMA_PEEK_CLAUDE="$FR/claude" "$G" peek rules build home-ops yard
+assert_rc 0 "build exits 0"
+assert_not_contains "unbound variable" "survives set -u"
+assert_contains "6 proposed, 2 kept" "keeps the two sound checks of six"
+assert_contains "cite not verbatim in memory" "drops a cite that is not word for word in memory"
+assert_contains "unknown kind" "drops an unknown kind"
+assert_contains "pattern does not compile" "drops a pattern that does not compile"
+assert_contains "instead is not an action" "drops an instead that only says to wait"
+[ "$(jq -r '[.[].id]|join(",")' "$CAND")" = "no-blower,trash" ] && ok "candidate ids are slugged" || fail "candidate ids" "$(cat "$CAND")"
+[ "$(jq -r '[.[].mode]|unique|join(",")' "$CAND")" = "shadow" ] && ok "every candidate is shadow" || fail "candidate modes"
+assert_no_file "$CHK" "a build writes no checks file"
+assert_no_file "$PEEK/rules/.lock" "the lock is released after a build"
+capture bash -c "printf '%s' '{\"session_id\":\"r-unapproved\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"leaf-blower --on\"},\"cwd\":\"$YARD\"}' | python3 '$ENGINE/lib/grandma-peek-engine.py' pre home-ops Yard"
+[ -z "$LAST_OUT" ] && ok "an unapproved candidate never denies" || fail "unapproved candidate acted" "$LAST_OUT"
+
+section "peek rules - the launch notice names what is waiting"
+capture bash -c "ROOT='$GRANDMA_HOME'; source '$ENGINE/lib/grandma-lib.sh'; grandma_peek_notice home-ops Yard"
+assert_contains "2 proposed peek check(s) waiting," "launch says how many are waiting"
+assert_contains "grandma peek rules review home-ops Yard" "and how to review them"
+
+section "peek rules review - no answer approves nothing"
+capture bash -c "'$G' peek rules review home-ops yard < /dev/null"
+assert_rc 0 "review on closed stdin exits 0"
+assert_no_file "$CHK" "closed stdin approves nothing"
+[ "$(jq length "$CAND")" = "2" ] && ok "unanswered candidates stay pending" || fail "candidates lost on closed stdin"
+
+capture bash -c "printf '\n\n' | '$G' peek rules review home-ops yard"
+assert_no_file "$CHK" "pressing Enter approves nothing"
+[ "$(jq length "$CAND")" = "2" ] && ok "skipped candidates stay pending" || fail "Enter dropped a candidate"
+
+section "peek rules review - y approves, n rejects, history is shown"
+TR="$TMP/transcripts"; mkdir -p "$TR"
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-07T10:00:00Z","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"leaf-blower --on"}}]}}' \
+  '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1"}]}}' 'not json' > "$TR/old.jsonl"
+capture bash -c "printf 'y\nn\n' | GRANDMA_PEEK_TRANSCRIPTS='$TR' '$G' peek rules review home-ops yard"
+assert_rc 0 "review exits 0"
+assert_contains "would have blocked 1 time(s) in the last 1 session(s)" "shows what the check would have blocked in past sessions"
+assert_contains "leaf-blower --on" "quotes the call it would have blocked"
+assert_contains "would have reminded 0 time(s)" "a reminder check reports reminders, not blocks"
+[ "$(jq -r '[.checks[].id]|join(",")' "$CHK")" = "no-blower" ] && ok "only the approved check is written" || fail "checks file" "$(cat "$CHK")"
+[ "$(jq -r '.checks[0].mode' "$CHK")" = "shadow" ] && ok "an approved check starts in shadow" || fail "approved mode"
+[ "$(jq length "$CAND")" = "0" ] && ok "answered candidates leave the queue" || fail "queue not drained"
+
+section "peek rules build - a rebuild skips what was approved or rejected"
+capture env GRANDMA_PEEK_CLAUDE="$FR/claude" "$G" peek rules build home-ops yard
+assert_contains "6 proposed, 0 kept" "nothing already answered is proposed again"
+assert_contains "already approved" "names the approved one"
+assert_contains "rejected before" "names the rejected one"
+
+section "peek rules - list and mode"
+capture "$G" peek rules home-ops yard
+assert_rc 0 "list exits 0"
+assert_contains "no-blower" "lists the approved check"
+assert_contains "shadow" "with its mode"
+capture "$G" peek mode home-ops yard no-blower enforce
+assert_rc 0 "mode exits 0"
+[ "$(jq -r '.checks[0].mode' "$CHK")" = "enforce" ] && ok "mode flips one check to enforce" || fail "mode did not flip"
+capture bash -c "printf '%s' '{\"session_id\":\"r-enforced\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"leaf-blower --on\"},\"cwd\":\"$YARD\"}' | python3 '$ENGINE/lib/grandma-peek-engine.py' pre home-ops Yard"
+assert_contains '"permissionDecision":"deny"' "an approved, enforced check denies"
+capture "$G" peek mode home-ops yard nope enforce
+[ "$LAST_RC" -ne 0 ] && ok "an unknown id is an error" || fail "unknown id accepted"
+printf '# yard\n- never mow wet grass\n' > "$YARD/CLAUDE.md"
+capture "$G" peek rules home-ops yard
+assert_contains "STALE" "a check whose line left memory is listed as stale"
+
+section "peek rules build - guards stop the call (delta)"
+rm -rf "$PEEK/rules"
+FG="$(fake_claude_json "$TMP/r1" "$RULES_REPLY")"
+capture env GRANDMA_PEEK_CLAUDE="$FG/claude" GRANDMA_DISTILLING=1 "$G" peek rules build home-ops yard
+[ "$(calls_of "$FG")" = "0" ] && ok "recursion guard: no call under GRANDMA_DISTILLING" || fail "recursion guard let a call through"
+mkdir -p "$PEEK/rules/.lock"
+capture env GRANDMA_PEEK_CLAUDE="$FG/claude" "$G" peek rules build home-ops yard
+[ "$(calls_of "$FG")" = "0" ] && ok "lock: no call while another build holds it" || fail "lock let a call through"
+assert_contains "another build is running" "says why"
+touch -t 202001010000 "$PEEK/rules/.lock"
+capture env GRANDMA_PEEK_CLAUDE="$FG/claude" "$G" peek rules build home-ops yard
+[ "$(calls_of "$FG")" = "1" ] && ok "a stale lock is taken over (the guard is the lock, not luck)" || fail "stale lock blocked the build"
+capture env GRANDMA_PEEK_CLAUDE="$FG/claude" GRANDMA_PEEK_RULES_CAP=1 "$G" peek rules build home-ops yard
+[ "$(calls_of "$FG")" = "1" ] && ok "cost cap: no call once the hourly cap is reached" || fail "cost cap let a call through"
+capture env GRANDMA_PEEK_CLAUDE="$FG/claude" GRANDMA_PEEK_RULES_CAP=2 "$G" peek rules build home-ops yard
+[ "$(calls_of "$FG")" = "2" ] && ok "under the cap the call goes through" || fail "cap blocked a call under the limit"
+
 echo
 if [ "$FAILS" -eq 0 ]; then echo "cmd_peek: PASS"; else echo "cmd_peek: $FAILS FAILURE(S)"; exit 1; fi

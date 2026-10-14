@@ -392,6 +392,17 @@ knit_checked_file() { printf '%s/.knit-checked' "$ROOT"; }
 
 # grandma_knit_notice — one line per waiting share, then a background refresh if the cache is
 # stale. Always returns 0: no gh, no network and no memory home are all normal states here.
+# grandma_peek_notice <sweater> [project] — one line when proposed peek checks are waiting for a
+# yes. Candidates never enforce, so without this a build's output would sit unseen.
+grandma_peek_notice() {
+  local f="$ROOT/.peek/candidates/$1/${2:-_sweater}.json" n
+  [[ -s "$f" ]] || return 0
+  n="$(grep -c '"id":' "$f" 2>/dev/null | tr -cd '0-9')"
+  [[ "${n:-0}" -gt 0 ]] || return 0
+  printf '  🧶 %s proposed peek check(s) waiting, approve or reject: grandma peek rules review %s%s\n' \
+    "$n" "$1" "${2:+ $2}" >&2
+}
+
 grandma_knit_notice() {
   [[ "${GRANDMA_NO_KNIT_CHECK:-0}" == "1" ]] && return 0
   local pf cf line now last age

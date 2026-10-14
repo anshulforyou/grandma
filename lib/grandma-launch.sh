@@ -608,6 +608,9 @@ grandma_update_notice
 # poll, so this never waits on GitHub (silence with GRANDMA_NO_KNIT_CHECK=1).
 grandma_knit_notice
 
+# Proposed peek checks waiting for approval in this project.
+grandma_peek_notice "$SCOPE" "${RP_NAME:-}"
+
 # Notice uncommitted memory changes (in-flight captures land as diffs you review).
 dirty="$(git -C "$ROOT" status --porcelain -- '*.md' 2>/dev/null | wc -l | tr -d ' ')"
 if [[ "${dirty:-0}" -gt 0 ]]; then

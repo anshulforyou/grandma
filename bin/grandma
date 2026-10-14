@@ -14,6 +14,8 @@
 #   grandma search [sweater] <query>   grep across your memory
 #   grandma peek                       what peek graded this session (v0: shadow mode)
 #   grandma peek replay <file> --scope <sweater> [--project <name>] [--checks <file>] [--json]
+#   grandma peek rules [build|review] <sweater> [project]   checks derived from your memory
+#   grandma peek mode <sweater> [project] <id|all> shadow|enforce
 #   grandma ingest [sweater] [--root]  catalog a folder of projects into a sweater
 #   grandma watch <start|status|...>   analysis campaigns over your sessions
 #   grandma knit <share|pull|list>     share a project's memory with a teammate
@@ -46,6 +48,6 @@ case "$sub" in
   completions)  shift; exec "$ENGINE/lib/grandma-completions.sh" "$@" ;;
   update)       shift; exec "$ENGINE/lib/grandma-update.sh" "$@" ;;
   version|--version|-v) exec "$ENGINE/lib/grandma-update.sh" version ;;
-  help|-h|--help) sed -n '3,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  help|-h|--help) sed -n '3,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *)            exec "$ENGINE/lib/grandma-launch.sh" "$@" ;;
 esac

@@ -22,7 +22,7 @@ CORE=(lib/grandma-launch.sh lib/grandma-lib.sh lib/grandma-rehydrate.sh lib/gran
       lib/grandma-update.sh lib/grandma-knit.sh lib/assemble.sh lib/grandma-peek.sh \
       prompts/distiller.md prompts/onboard.md prompts/ingest.md prompts/new-scope.md \
       prompts/capture.md lib/grandma-watch.sh prompts/watch-digest.md prompts/watch-report.md \
-      prompts/peek.md)
+      prompts/peek.md prompts/peek-rules.md lib/grandma-peek-engine.py lib/grandma-peek-rules.py)
 
 fail=0
 pass() { printf '  \033[32mok\033[0m   %s\n' "$1"; }

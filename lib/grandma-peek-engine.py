@@ -462,6 +462,50 @@ def hook(mode, root, scope, project):
         lock.rmdir()
 
 
+def replay_transcript(enforced, path, report):
+    """Walk one Claude Code transcript through decide(), counting would-deny events into report."""
+    state, ledger, pending = {}, [], {}
+    with open(path, errors='replace') as transcript:
+        for line in transcript:
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(row, dict) or not isinstance(row.get('message'), dict):
+                continue
+            content = row['message'].get('content', [])
+            if isinstance(content, str):
+                content = [{'type': 'text', 'text': content}]
+            if not isinstance(content, list):
+                continue
+            content = [b for b in content if isinstance(b, dict)]
+            if row.get('type') == 'user':
+                texts = [b.get('text', '') for b in content if b.get('type') == 'text']
+                if texts:
+                    state = new_turn(state, '\n'.join(texts))
+                for block in content:
+                    if block.get('type') == 'tool_result':
+                        call = pending.pop(block.get('tool_use_id'), None)
+                        if call:
+                            ledger.append({'tool': call['name'], 'target': tool_target(call['name'], call.get('input', {})),
+                                           'outcome': 'failed' if block.get('is_error') else 'ok'})
+            elif row.get('type') == 'assistant':
+                for block in content:
+                    if block.get('type') != 'tool_use' or not isinstance(block.get('input', {}), dict):
+                        continue
+                    decision = decide(enforced, block.get('name', ''), block.get('input', {}), ledger, state.get('prompt', ''), state)
+                    state = decision['state']
+                    pending[block.get('id')] = block
+                    for match in decision['matched']:
+                        if match['id'] in report and match['action'] == 'recall':
+                            report[match['id']]['would_recall'] = report[match['id']].get('would_recall', 0) + 1
+                        if match['action'] in ('deny', 'released') and match['id'] in report:
+                            item = report[match['id']]
+                            item['would_deny'] += 1
+                            item['events'].append({'timestamp': row.get('timestamp', ''),
+                                                   'input': domain(block.get('name', ''), block.get('input', {}))[:120]})
+
+
 def replay(root, args):
     import argparse
     import tempfile
@@ -477,37 +521,7 @@ def replay(root, args):
         checks = load_checks(root, options.scope, options.project, directory, external=options.checks)
         report = {c['id']: {'id': c['id'], 'mode': c['mode'], 'would_deny': 0, 'events': []} for c in checks}
         enforced = [dict(c, mode='enforce') for c in checks]
-        state, ledger, pending = {}, [], {}
-        with open(options.transcript) as transcript:
-            for line in transcript:
-                row = json.loads(line)
-                message = row.get('message', {})
-                content = message.get('content', [])
-                if isinstance(content, str):
-                    content = [{'type': 'text', 'text': content}]
-                if row.get('type') == 'user':
-                    texts = [b.get('text', '') for b in content if b.get('type') == 'text']
-                    if texts:
-                        state = new_turn(state, '\n'.join(texts))
-                    for block in content:
-                        if block.get('type') == 'tool_result':
-                            call = pending.pop(block.get('tool_use_id'), None)
-                            if call:
-                                ledger.append({'tool': call['name'], 'target': tool_target(call['name'], call.get('input', {})),
-                                               'outcome': 'failed' if block.get('is_error') else 'ok'})
-                elif row.get('type') == 'assistant':
-                    for block in content:
-                        if block.get('type') != 'tool_use':
-                            continue
-                        decision = decide(enforced, block['name'], block.get('input', {}), ledger, state.get('prompt', ''), state)
-                        state = decision['state']
-                        pending[block['id']] = block
-                        for match in decision['matched']:
-                            if match['action'] in ('deny', 'released'):
-                                item = report[match['id']]
-                                item['would_deny'] += 1
-                                item['events'].append({'timestamp': row.get('timestamp', ''),
-                                                       'input': domain(block['name'], block.get('input', {}))[:120]})
+        replay_transcript(enforced, options.transcript, report)
         output = list(report.values())
         if options.json:
             print(compact(output))
