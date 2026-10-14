@@ -26,10 +26,11 @@ source "$ENGINE/lib/grandma-lib.sh"
 
 # First-word candidates that are NOT sweaters: the reserved subcommands (keep in sync with
 # bin/grandma). A sweater whose name collides with one of these is shadowed, as documented.
-SUBCOMMANDS="init save review search ingest watch knit mcp test doctor completions update version help"
+SUBCOMMANDS="init save review search ingest watch knit mcp opencode test doctor completions update version help"
 WATCH_COMMANDS="start tick list status report finish notify-test install-agent"
 KNIT_COMMANDS="share pull list contacts install-agent uninstall-agent"
 MCP_COMMANDS="list add remove strict"
+OPENCODE_COMMANDS="save review doctor"
 
 # _gc_scopes - completable first words: every sweater, then the subcommands.
 _gc_scopes() {
@@ -67,6 +68,12 @@ _gc_mcp_commands() {
   printf '%s\n' $MCP_COMMANDS
 }
 
+# _gc_opencode_words - what follows `grandma opencode`: a sweater to launch, or one of its verbs.
+_gc_opencode_words() {
+  list_scopes 2>/dev/null || true
+  printf '%s\n' $OPENCODE_COMMANDS
+}
+
 # _gc_emit_bash - the bash completion script (quoted heredoc: emitted verbatim).
 _gc_emit_bash() {
   cat <<'BASH'
@@ -89,8 +96,16 @@ _grandma_complete() {
         COMPREPLY=( $(compgen -W "$(grandma completions __knit_commands 2>/dev/null)" -- "$cur") ) ;;
       mcp)
         COMPREPLY=( $(compgen -W "$(grandma completions __mcp_commands 2>/dev/null)" -- "$cur") ) ;;
+      opencode)
+        COMPREPLY=( $(compgen -W "$(grandma completions __opencode_words 2>/dev/null)" -- "$cur") ) ;;
       *)
         COMPREPLY=( $(compgen -W "$(grandma completions __projects "${COMP_WORDS[1]}" 2>/dev/null | cut -f1)" -- "$cur") ) ;;
+    esac
+  elif [[ ${COMP_CWORD} -eq 3 && "${COMP_WORDS[1]}" == "opencode" ]]; then
+    case "${COMP_WORDS[2]}" in
+      save|review) COMPREPLY=( $(compgen -W "$(grandma completions __scopes 2>/dev/null)" -- "$cur") ) ;;
+      doctor) ;;
+      *) COMPREPLY=( $(compgen -W "$(grandma completions __projects "${COMP_WORDS[2]}" 2>/dev/null | cut -f1)" -- "$cur") ) ;;
     esac
   elif [[ ${COMP_CWORD} -eq 3 && "${COMP_WORDS[1]}" == "knit" && "${COMP_WORDS[2]}" == "share" ]]; then
     COMPREPLY=( $(compgen -W "$(grandma completions __scopes 2>/dev/null)" -- "$cur") )
@@ -119,6 +134,21 @@ _grandma_complete() {
   if (( CURRENT == 2 )); then
     scopes=(${(f)"$(grandma completions __scopes 2>/dev/null)"})
     compadd -a scopes
+  elif (( CURRENT == 4 )) && [[ "${words[2]}" == "opencode" ]]; then
+    case "${words[3]}" in
+      save|review)
+        scopes=(${(f)"$(grandma completions __scopes 2>/dev/null)"})
+        compadd -a scopes ;;
+      doctor) ;;
+      *)
+        lines=(${(f)"$(grandma completions __projects ${words[3]} 2>/dev/null)"})
+        local l
+        for l in $lines; do
+          toks+=("${l%%$'\t'*}")
+          descs+=("${l#*$'\t'}")
+        done
+        (( ${#toks} )) && compadd -d descs -a toks ;;
+    esac
   elif (( CURRENT == 4 )) && [[ "${words[2]}" == "knit" && "${words[3]}" == "share" ]]; then
     scopes=(${(f)"$(grandma completions __scopes 2>/dev/null)"})
     compadd -a scopes
@@ -145,6 +175,9 @@ _grandma_complete() {
       mcp)
         mcp_commands=(${(f)"$(grandma completions __mcp_commands 2>/dev/null)"})
         compadd -a mcp_commands ;;
+      opencode)
+        scopes=(${(f)"$(grandma completions __opencode_words 2>/dev/null)"})
+        compadd -a scopes ;;
       *)
         lines=(${(f)"$(grandma completions __projects ${words[2]} 2>/dev/null)"})
         local l
@@ -169,7 +202,9 @@ complete -c grandma -f
 complete -c grandma -l full -l writing
 complete -c grandma -n 'test (count (commandline -opc)) -eq 1' -a '(grandma completions __scopes 2>/dev/null)'
 complete -c grandma -n 'test (count (commandline -opc)) -eq 2; and test (commandline -opc)[2] = knit' -a '(grandma completions __knit_commands 2>/dev/null)'
-complete -c grandma -n 'test (count (commandline -opc)) -eq 2; and test (commandline -opc)[2] != knit' -a '(grandma completions __projects (commandline -opc)[2] 2>/dev/null)'
+complete -c grandma -n 'test (count (commandline -opc)) -eq 2; and test (commandline -opc)[2] = opencode' -a '(grandma completions __opencode_words 2>/dev/null)'
+complete -c grandma -n 'test (count (commandline -opc)) -eq 2; and test (commandline -opc)[2] != knit; and test (commandline -opc)[2] != opencode' -a '(grandma completions __projects (commandline -opc)[2] 2>/dev/null)'
+complete -c grandma -n 'test (count (commandline -opc)) -eq 3; and test (commandline -opc)[2] = opencode' -a '(grandma completions __projects (commandline -opc)[3] 2>/dev/null)'
 complete -c grandma -n 'test (count (commandline -opc)) -eq 3; and test (commandline -opc)[2] = knit; and test (commandline -opc)[3] = share' -a '(grandma completions __scopes 2>/dev/null)'
 complete -c grandma -n 'test (count (commandline -opc)) -eq 4; and test (commandline -opc)[2] = knit; and test (commandline -opc)[3] = share' -a '(grandma completions __projects (commandline -opc)[4] 2>/dev/null)'
 FISH
@@ -184,5 +219,6 @@ case "${1:-}" in
   __watch_commands) _gc_watch_commands ;;
   __knit_commands)  _gc_knit_commands ;;
   __mcp_commands)   _gc_mcp_commands ;;
+  __opencode_words) _gc_opencode_words ;;
   *)           echo "usage: grandma completions <bash|zsh|fish>" >&2; exit 2 ;;
 esac

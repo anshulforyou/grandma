@@ -139,6 +139,24 @@ survive it. Grandma's SessionStart hook with the `compact` matcher fires right a
 each compaction and re-injects the full bundle plus doctrine. This is why a six-hour
 session does not degrade into an agent that forgot who you are.
 
+## Running in OpenCode
+
+`grandma opencode` is the same session in another CLI, so it keeps every part of the engine that
+decides what a session knows: `assemble.sh` selects the memory and the prompts are the same files.
+Only the transport changes, and all of it lives in `lib/adapters/opencode.sh`.
+
+Claude Code takes memory as an appended system prompt and loses it at compaction, which is why the
+rehydrate hook exists. OpenCode has a better slot: session instruction entries, set through its
+API. They sit at the system level, compaction does not touch them, and they live in OpenCode's own
+session store rather than in a file in the project. That last part matters. The obvious way to hand
+memory to a CLI that reads `AGENTS.md` is to write an `AGENTS.md`, and a memory-bearing file in a
+project tree is one `git add .` away from being pushed. Invariant 19 forbids the adapter from
+writing one, and a test checks the project folder is untouched after a launch.
+
+OpenCode has no session-end signal, so the launcher wraps the UI, as it does for claude, and the
+distill runs in a throwaway session whose permission rules deny every tool. An unattended pass can
+therefore read what it is handed and answer, and do nothing else. See [opencode.md](opencode.md).
+
 ## The integrity suite
 
 `grandma test` verifies sixteen invariants. The interesting ones:

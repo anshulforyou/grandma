@@ -20,6 +20,7 @@ ASSEMBLE="$ENGINE/lib/assemble.sh"
 CORE=(lib/grandma-launch.sh lib/grandma-lib.sh lib/grandma-rehydrate.sh lib/grandma-session-end.sh \
       lib/grandma-save.sh lib/grandma-ingest.sh lib/grandma-review.sh lib/grandma-search.sh \
       lib/grandma-update.sh lib/grandma-knit.sh lib/assemble.sh \
+      lib/grandma-opencode.sh lib/adapters/opencode.sh \
       prompts/distiller.md prompts/onboard.md prompts/ingest.md prompts/new-scope.md \
       prompts/capture.md lib/grandma-watch.sh prompts/watch-digest.md prompts/watch-report.md)
 
@@ -249,7 +250,7 @@ fi
 # appears only in a comment does not count, because a note must not be able to silence the check.
 echo "== 16. no grep reads stdin by accident (glob operands are /dev/null-backed) =="
 gs_ok=1
-for f in "$ENGINE"/lib/*.sh "$ENGINE/bin/grandma" "$ENGINE/hooks/pre-commit" "$ENGINE/install.sh"; do
+for f in "$ENGINE"/lib/*.sh "$ENGINE"/lib/adapters/*.sh "$ENGINE/bin/grandma" "$ENGINE/hooks/pre-commit" "$ENGINE/install.sh"; do
   [[ -f "$f" ]] || continue
   while IFS= read -r line; do
     trimmed="${line#"${line%%[![:space:]]*}"}"        # leading blanks off (the grep -n prefix stays)
@@ -337,6 +338,37 @@ for _f in "$ENGINE"/lib/*.sh; do
   esac
 done
 [[ "$mc_ok" == "1" ]] && pass "a strict sweater always gets strict mode, and nothing is registered at user scope"
+
+# ---- 19. The OpenCode adapter keeps the promises the claude path keeps ----
+# It is a second transport for the same memory, so the guards the claude path earned the hard way
+# hold there too. The unattended distill must be recursion-guarded, breakered and locked, and must
+# run where it can edit nothing. Memory must reach the session the way the bundle reaches claude,
+# outside the project tree: through the session's instruction entries, never through a file the
+# adapter writes where a commit could pick it up. That is the leak a context-file transport has and
+# an ephemeral system prompt never had. Comments are stripped first, as in 18, so a note cannot
+# stand in for the code. test/cmd_opencode.sh proves each of these FIRES against a fake opencode.
+echo "== 19. opencode adapter (guarded distill, deny-all inference, memory outside the project tree) =="
+oc_ok=1
+_oc="$(sed 's/#.*$//' "$ENGINE/lib/grandma-opencode.sh" 2>/dev/null || true)"
+_ad="$(sed 's/#.*$//' "$ENGINE/lib/adapters/opencode.sh" 2>/dev/null || true)"
+if [[ -z "$_oc" || -z "$_ad" ]]; then
+  bad "the opencode adapter is missing (lib/grandma-opencode.sh, lib/adapters/opencode.sh)"; oc_ok=0
+else
+  case "$_oc" in *'GRANDMA_DISTILLING:-0'*) ;; *) bad "grandma-opencode.sh has no GRANDMA_DISTILLING recursion guard"; oc_ok=0 ;; esac
+  case "$_oc" in *'GRANDMA_DISTILLING=1'*) ;; *) bad "grandma-opencode.sh does not mark its headless call with GRANDMA_DISTILLING"; oc_ok=0 ;; esac
+  case "$_oc" in *'CIRCUIT BREAKER'*'GRANDMA_AUTOSAVE_CAP'*|*'GRANDMA_AUTOSAVE_CAP'*'CIRCUIT BREAKER'*) ;;
+    *) bad "the opencode distill has no circuit breaker"; oc_ok=0 ;; esac
+  case "$_oc" in *'.lock-opencode-'*) ;; *) bad "the opencode distill takes no per-session lock"; oc_ok=0 ;; esac
+  case "$_oc" in *'readable="$ROOT/.distill'*) ;; *) bad "the opencode transcript is not staged under \$ROOT/.distill"; oc_ok=0 ;; esac
+  case "$_oc" in *'prompts/capture.md'*) ;; *) bad "opencode sessions do not carry the capture doctrine"; oc_ok=0 ;; esac
+  case "$_ad" in *'"action":"*","resource":"*","effect":"deny"'*) ;; *) bad "the opencode inference session does not deny every tool"; oc_ok=0 ;; esac
+  case "$_ad" in *'instructions/entries'*) ;; *) bad "the opencode adapter does not load memory as session instruction entries"; oc_ok=0 ;; esac
+  case "$_ad" in *'OC_BODY_MAX'*) ;; *) bad "the opencode adapter has no argv budget for request bodies"; oc_ok=0 ;; esac
+  if printf '%s\n%s\n' "$_oc" "$_ad" | grep -qE '>>?[[:space:]]*"?[^[:space:]]*(AGENTS|GEMINI|CLAUDE)\.md'; then
+    bad "the opencode adapter writes a context file (AGENTS.md, GEMINI.md or CLAUDE.md): memory would land in a project tree"; oc_ok=0
+  fi
+fi
+[[ "$oc_ok" == "1" ]] && pass "opencode distill is guarded and tool-less, memory rides in session instructions, never a project file"
 
 echo
 if [[ "$fail" == "0" ]]; then echo "grandma-test: ALL PASS"; else echo "grandma-test: FAILURES ABOVE"; fi

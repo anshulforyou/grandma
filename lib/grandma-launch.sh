@@ -160,32 +160,8 @@ install_precompact_hook() {
   return 0
 }
 
-# Common parent folder of a scope's registered projects (for onboarding new projects).
-scope_working_root() {
-  local reg="$1/projects.md"
-  [[ -f "$reg" ]] || return 0
-  project_entries "$reg" | cut -f2 | python3 -c "
-import sys, os
-dirs=[l.strip() for l in sys.stdin if l.strip()]
-print(os.path.commonpath(dirs) if dirs else '')
-" 2>/dev/null || true
-}
-
-# dirty_md_files — repo-relative paths of uncommitted .md changes in the memory home.
-# proposals/ and watches/ are gitignored, so this is reviewable memory only.
-dirty_md_files() {
-  git -C "$ROOT" status --porcelain -- '*.md' 2>/dev/null | while IFS= read -r _l; do
-    _f="${_l:3}"; printf '%s\n' "${_f##* -> }"
-  done
-}
-
-# md_fingerprint <relpath> — one stable line for a dirty file's working content (cksum is
-# POSIX, same output on BSD and GNU). post_session compares these against a launch-time
-# snapshot to tell files captured DURING this session from dirt that predates it.
-md_fingerprint() {
-  if [[ -f "$ROOT/$1" ]]; then printf '%s %s\n' "$(cksum < "$ROOT/$1")" "$1"
-  else printf 'deleted %s\n' "$1"; fi
-}
+# scope_working_root, dirty_md_files and md_fingerprint live in grandma-lib.sh: the OpenCode
+# launcher onboards and reviews sessions the same way.
 
 # post_session — runs after a wrapped session returns (we do NOT exec claude). Distills the
 # just-ended session in the FOREGROUND and offers an immediate review of what THIS session
@@ -284,6 +260,16 @@ background_distill() {
 }
 on_hangup() { rm -f "${PRE_DIRTY_SNAP:-}" 2>/dev/null; background_distill; exit 129; }
 
+# ---- which CLI runs the session ----
+# GRANDMA_CLI picks one for every sweater. A sweater can also pick its own with a `cli:` line,
+# checked below once the sweater is known. claude is the rest of this file.
+case "$(grandma_cli)" in
+  claude) ;;
+  opencode) exec "$ENGINE/lib/grandma-opencode.sh" "$@" ;;
+  *) printf "  GRANDMA_CLI='%s' is not a CLI grandma can drive. Use claude or opencode.\n" "${GRANDMA_CLI:-}" >&2
+     exit 2 ;;
+esac
+
 # ---- parse args: grandma <sweater> [project] [task...] [--full] [--writing] ----
 # A single bare word right after the scope (no spaces, before any task words) is the project.
 SCOPE=""
@@ -351,6 +337,21 @@ if ! resolve_scope_dir "$SCOPE" >/dev/null 2>&1; then
     exit 1
   fi
 fi
+
+# A sweater's own `cli:` line (GRANDMA_CLI, when set, was honoured above and wins). The adapter
+# takes the same arguments, rebuilt from what was parsed here, so a sweater picked from the menu
+# arrives named.
+_cli="$(sweater_cli "$SCOPE")"
+case "$_cli" in
+  claude) ;;
+  opencode)
+    if [[ ${#PASSTHRU[@]} -gt 0 ]]; then
+      printf '  claude flags are not forwarded to opencode: %s\n' "${PASSTHRU[*]}" >&2
+    fi
+    exec "$ENGINE/lib/grandma-opencode.sh" "$SCOPE" ${PROJECT:+"$PROJECT"} ${TASK[@]+"${TASK[@]}"} ${PASS[@]+"${PASS[@]}"} ;;
+  *) printf "  sweater '%s' asks for cli: %s, which grandma cannot drive. Use claude or opencode.\n" "$SCOPE" "$_cli" >&2
+     exit 2 ;;
+esac
 
 # Assemble the scope bundle (global + scope memory). Same for all paths below.
 BUNDLE="$("$ASSEMBLE" "$SCOPE" ${PASS[@]+"${PASS[@]}"})"
