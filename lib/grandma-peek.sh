@@ -378,7 +378,17 @@ rules_target() {
     if [[ "${RP_STATUS:-NONE}" != "OK" ]]; then
       echo "peek rules: no project named $R_PROJECT in $R_SCOPE" >&2; return 1
     fi
-    R_PROJECT="${RP_NAME:-$R_PROJECT}"; R_PDIR="${RP_DIR:-}"
+    R_PROJECT="$(peek_key "${RP_NAME:-$R_PROJECT}")"; R_PDIR="${RP_DIR:-}"
+    # The checks file is named by the heading's first word, so two headings sharing it would
+    # share one file and one project's checks would run in the other.
+    local raw _dir same="" n=0
+    while IFS=$'\t' read -r raw _dir; do
+      [[ "$(peek_key "$raw")" == "$R_PROJECT" ]] && { same+="${same:+; }$raw"; n=$((n + 1)); }
+    done < <(project_entries "$sd/projects.md")
+    if [[ "$n" -gt 1 ]]; then
+      echo "peek rules: these projects would share one checks file ($R_PROJECT.json): $same. Give one a different first word in $R_SCOPE/projects.md." >&2
+      return 1
+    fi
   fi
   return 0
 }
@@ -391,21 +401,39 @@ cmd_rules_build() {
     echo "peek rules: not building inside another grandma model call (GRANDMA_DISTILLING=1)." >&2
     return 1
   fi
-  local memory pmd=""
+  local memory pmd="" shapes=""
   memory="$("$ENGINE/lib/assemble.sh" "$R_SCOPE" 2>/dev/null || true)"
   [[ -n "$R_PDIR" && -f "$R_PDIR/CLAUDE.md" ]] && pmd="$R_PDIR/CLAUDE.md"
-  if [[ -n "$pmd" ]]; then
-    memory="$memory
+  if [[ -n "$R_PROJECT" ]]; then
+    if [[ -z "$pmd" ]]; then
+      echo "peek rules: $R_PROJECT has no CLAUDE.md at ${R_PDIR:-its catalog source}, so there is nothing to build from." >&2
+      return 1
+    fi
+    # Project first: its rules are the whole job, the rest of memory only says what replaced them.
+    shapes="$(rules_py shapes 2>/dev/null || true)"
+    memory="===== MODE: project. Every cite comes from project:CLAUDE.md. =====
 
+===== PROJECT INSTRUCTIONS =====
 ----- BEGIN project:CLAUDE.md -----
 $(cat "$pmd" 2>/dev/null || true)
------ END project:CLAUDE.md -----"
+----- END project:CLAUDE.md -----
+
+===== OTHER MEMORY, context only =====
+$memory
+
+===== OBSERVED IN RECENT SESSIONS =====
+${shapes:-No recent sessions found.}"
+  else
+    memory="===== MODE: sweater. Cites come from the memory files below. =====
+
+$memory"
   fi
   local name="${R_PROJECT:-_sweater}"
   if [[ "${GRANDMA_DRY_RUN:-0}" == "1" ]]; then
     { echo "mode:       PEEK rules build"
       echo "scope:      $R_SCOPE${R_PROJECT:+  project=$R_PROJECT}"
-      echo "memory:     ${#memory} chars${pmd:+ (includes $pmd)}"
+      echo "memory:     ${#memory} chars${pmd:+ (project rules from $pmd)}"
+      [[ -n "$R_PROJECT" ]] && echo "observed:   $(printf '%s\n' "$shapes" | grep -c 'x  ' || true) command shape(s) from recent sessions"
       echo "model:      $RULES_MODEL (one call)"
       echo "writes:     $PEEK_ROOT/candidates/$R_SCOPE/$name.json (candidates only, nothing enforced)"; } >&2
     return 0

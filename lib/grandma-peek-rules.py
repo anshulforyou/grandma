@@ -6,6 +6,7 @@ Called by grandma-peek.sh, which resolves the sweater and project and owns the m
   review <root> <scope> <project> <project_dir>
   list   <root> <scope> <project> <project_dir>
   mode   <root> <scope> <project> <project_dir> <id|all> <shadow|enforce>
+  shapes <root> <scope> <project> <project_dir>
 An empty project means the sweater-wide file. Nothing reaches a checks file without a typed yes.
 """
 import importlib.util
@@ -26,6 +27,20 @@ KINDS = ('forbid_command', 'forbid_text', 'require_before', 'recall_on', 'grade_
 WAITING = re.compile(r'\b(wait|waiting|sleep|pause|slow down|be careful|take (your|more|some) time|'
                      r'spend more time|try again later)\b', re.IGNORECASE)
 SESSIONS = int(os.environ.get('GRANDMA_PEEK_REVIEW_SESSIONS', '30'))
+# The command digest goes to the model, so it is bounded and scrubbed of anything credential shaped.
+SHAPE_WIDTH, SHAPE_COUNT, SHAPE_CHARS, PATH_COUNT = 160, 300, 40000, 100
+SECRETS = [
+    (re.compile(r'\b(Bearer|Basic)\s+\S+'), r'\1 <redacted>'),
+    (re.compile(r'\b(Authorization|Cookie|X-Api-Key)(["\']?\s*:\s*)[^"\'\s]+', re.IGNORECASE), r'\1\2<redacted>'),
+    (re.compile(r'\b(\w*(?:token|key|secret|password|cookie)\w*)=[^&\s"\']+', re.IGNORECASE), r'\1=<redacted>'),
+    # A long unbroken run with a digit in it is a key, not a word. Slashes split it, so paths survive.
+    (re.compile(r'(?=[A-Za-z_\-+=.]*[0-9])[A-Za-z0-9_\-+=.]{40,}'), '<redacted>'),
+]
+HEX = re.compile(r'[0-9a-f]{12,}')
+# Names the project file puts in backticks, such as a script or an endpoint, are what rules are about.
+TICKED = re.compile(r'`([^`\s]{3,60})`')
+# Where a command really starts: a cd into the project or a scratch variable says nothing about it.
+PREAMBLE = re.compile(r'^(cd\s+("[^"]*"|\'[^\']*\'|\S+)\s*(&&|;)\s*|[A-Za-z_]\w*=("[^"]*"|\S*)\s*(&&|;)?\s*)')
 
 
 class Context:
@@ -129,6 +144,9 @@ def ingest(ctx, output_file):
             drop('pattern does not compile')
         elif WAITING.search(check['instead']):
             drop('instead is not an action')
+        elif ctx.project and check['file'] != 'project:CLAUDE.md':
+            # Sweater and global rules belong in the sweater file, not copied into every project.
+            drop('not from the project file')
         elif not ctx.fresh(check):
             drop('cite not verbatim in memory')
         elif json.dumps(key(check)) in known:
@@ -148,16 +166,96 @@ def ingest(ctx, output_file):
     return 0
 
 
-def history(ctx, candidates):
-    """Would-deny counts for each candidate over this project's recent sessions."""
+def transcripts(ctx):
+    """This project's most recent session transcripts, newest first, or None for a sweater."""
     if not ctx.project or not ctx.project_dir:
-        return None, {}
+        return None
     folder = os.environ.get('GRANDMA_PEEK_TRANSCRIPTS') or str(
         Path.home() / '.claude' / 'projects' / re.sub(r'[^A-Za-z0-9]', '-', str(ctx.project_dir)))
     try:
-        files = sorted(Path(folder).glob('*.jsonl'), key=lambda f: f.stat().st_mtime, reverse=True)[:SESSIONS]
+        return sorted(Path(folder).glob('*.jsonl'), key=lambda f: f.stat().st_mtime, reverse=True)[:SESSIONS]
     except OSError:
-        files = []
+        return []
+
+
+def scrub(text):
+    for pattern, replacement in SECRETS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
+def shape(command, names):
+    """One digest line: the command's start, plus any named thing the cut would hide."""
+    text = ' '.join(command.split())
+    while True:
+        trimmed = PREAMBLE.sub('', text, count=1)
+        if trimmed == text or not trimmed:
+            break
+        text = trimmed
+    text = HEX.sub('<id>', scrub(text))
+    head, rest = text[:SHAPE_WIDTH], text[SHAPE_WIDTH:]
+    hidden = [name for name in names if name in rest and name not in head]
+    return head + ('  [later in it: {}]'.format(', '.join(hidden[:8])) if hidden else '')
+
+
+def named(ctx):
+    try:
+        text = (Path(ctx.project_dir) / 'CLAUDE.md').read_text(errors='replace')
+    except OSError:
+        return []
+    return sorted({HEX.sub('<id>', scrub(m)) for m in TICKED.findall(text)}, key=len, reverse=True)
+
+
+def shapes(ctx):
+    """The commands and written files from recent sessions, so patterns follow how work really runs."""
+    files = transcripts(ctx)
+    if not files:
+        return 0
+    commands, written, names = {}, {}, named(ctx)
+    for path in files:
+        try:
+            lines = path.open(errors='replace')
+        except OSError:
+            continue
+        with lines:
+            for line in lines:
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    continue
+                message = record.get('message') if isinstance(record, dict) else None
+                content = message.get('content') if isinstance(message, dict) else None
+                for block in content if isinstance(content, list) else []:
+                    if not isinstance(block, dict) or block.get('type') != 'tool_use':
+                        continue
+                    inp = block.get('input') if isinstance(block.get('input'), dict) else {}
+                    if block.get('name') == 'Bash' and isinstance(inp.get('command'), str):
+                        text = shape(inp['command'], names)
+                        commands[text] = commands.get(text, 0) + 1
+                    elif block.get('name') in ('Write', 'Edit', 'MultiEdit') and isinstance(inp.get('file_path'), str):
+                        written[scrub(inp['file_path'])] = written.get(scrub(inp['file_path']), 0) + 1
+    out, size = [], 0
+    for text, count in sorted(commands.items(), key=lambda item: -item[1])[:SHAPE_COUNT]:
+        row = '{:>4}x  {}'.format(count, text)
+        if size + len(row) > SHAPE_CHARS:
+            break
+        out.append(row)
+        size += len(row) + 1
+    print('Commands from the last {} session(s), most frequent first, each cut to {} characters:'.format(
+        len(files), SHAPE_WIDTH))
+    print('\n'.join(out))
+    if written:
+        print('\nFiles written with Write or Edit:')
+        print('\n'.join('{:>4}x  {}'.format(n, f) for f, n in
+                        sorted(written.items(), key=lambda item: -item[1])[:PATH_COUNT]))
+    return 0
+
+
+def history(ctx, candidates):
+    """Would-deny counts for each candidate over this project's recent sessions."""
+    files = transcripts(ctx)
+    if files is None:
+        return None, {}
     report = {c['id']: {'would_deny': 0, 'events': []} for c in candidates}
     enforced = [dict(c, mode='enforce') for c in candidates if c['kind'] != 'grade_at_stop']
     for path in files:
@@ -327,6 +425,8 @@ def main(argv):
             return ingest(ctx, argv[5])
         if verb == 'review':
             return review(ctx)
+        if verb == 'shapes':
+            return shapes(ctx)
         if verb == 'list':
             return listing(ctx)
         if verb == 'mode' and len(argv) == 7:

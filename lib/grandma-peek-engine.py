@@ -196,6 +196,13 @@ def signature(path):
         return None
 
 
+def peek_key(name):
+    # A project's checks file is named for the first word of its catalog heading, so a heading
+    # like 'billing (Q3 rewrite | API)' gives billing.json. Mirrors peek_key in grandma-lib.sh.
+    parts = str(name or '').split()
+    return re.sub(r'[^A-Za-z0-9._-]', '-', parts[0]) if parts else ''
+
+
 def project_file(root, scope, project, cwd):
     # Claude Code gives hooks the session's project root. The hook's cwd follows any cd the model
     # made, so a session working in a subfolder would see every project-cited check go stale.
@@ -209,7 +216,7 @@ def project_file(root, scope, project, cwd):
         for line in registry.read_text().splitlines():
             if line.startswith('## '):
                 name = line[3:].strip()
-            elif line.startswith('- source:') and name.casefold() == project.casefold():
+            elif line.startswith('- source:') and peek_key(name).casefold() == peek_key(project).casefold():
                 return os.path.expanduser(line.split(':', 1)[1].strip())
     except OSError:
         pass
@@ -518,7 +525,7 @@ def replay(root, args):
     options = parser.parse_args(args)
     with tempfile.TemporaryDirectory(prefix='grandma-peek-replay-') as scratch:
         directory = Path(scratch)
-        checks = load_checks(root, options.scope, options.project, directory, external=options.checks)
+        checks = load_checks(root, options.scope, peek_key(options.project), directory, external=options.checks)
         report = {c['id']: {'id': c['id'], 'mode': c['mode'], 'would_deny': 0, 'events': []} for c in checks}
         enforced = [dict(c, mode='enforce') for c in checks]
         replay_transcript(enforced, options.transcript, report)
@@ -544,7 +551,7 @@ def main():
         replay(root, sys.argv[2:])
         return
     try:
-        hook(mode, root, sys.argv[2] if len(sys.argv) > 2 else '', sys.argv[3] if len(sys.argv) > 3 else '')
+        hook(mode, root, sys.argv[2] if len(sys.argv) > 2 else '', peek_key(sys.argv[3] if len(sys.argv) > 3 else ''))
     except Exception:
         # Hooks must never strand a tool call, including failures of parsing and storage.
         return

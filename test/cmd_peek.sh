@@ -228,7 +228,7 @@ rm -rf "$GRANDMA_HOME/home-ops/peek" "$PEEK/candidates" "$PEEK/rules"
 CAND="$PEEK/candidates/home-ops/Yard.json"
 CHK="$GRANDMA_HOME/home-ops/peek/Yard.json"
 
-# Six proposals, fenced and wrapped in prose the way models answer. Only two are sound.
+# Seven proposals, fenced and wrapped in prose the way models answer. Only two are sound.
 RULES_REPLY='Here are the checks:
 ```json
 {"checks":[
@@ -237,6 +237,7 @@ RULES_REPLY='Here are the checks:
 {"id":"vibes","kind":"forbid_vibes","cite":"never mow wet grass","file":"project:CLAUDE.md","instead":"Use the trimmer"},
 {"id":"bad","kind":"forbid_command","cite":"never mow wet grass","file":"project:CLAUDE.md","instead":"Use the trimmer","match":"("},
 {"id":"waity","kind":"forbid_command","cite":"never mow wet grass","file":"project:CLAUDE.md","instead":"Wait until it dries","match":"mow"},
+{"id":"Mow Reminder","kind":"recall_on","cite":"never mow wet grass","file":"project:CLAUDE.md","instead":"Check the lawn is dry","trigger":{"tool":"Bash","match":"mower"}},
 {"id":"trash","kind":"recall_on","cite":"trash goes out Sunday night","file":"home-ops/facts.md","instead":"Put the bins out","trigger":{"tool":"Bash","match":"trash"}}
 ]}
 ```'
@@ -254,12 +255,13 @@ section "peek rules build - only sound proposals survive, none enforce"
 capture env GRANDMA_PEEK_CLAUDE="$FR/claude" "$G" peek rules build home-ops yard
 assert_rc 0 "build exits 0"
 assert_not_contains "unbound variable" "survives set -u"
-assert_contains "6 proposed, 2 kept" "keeps the two sound checks of six"
+assert_contains "7 proposed, 2 kept" "keeps the two sound checks of seven"
 assert_contains "cite not verbatim in memory" "drops a cite that is not word for word in memory"
 assert_contains "unknown kind" "drops an unknown kind"
 assert_contains "pattern does not compile" "drops a pattern that does not compile"
 assert_contains "instead is not an action" "drops an instead that only says to wait"
-[ "$(jq -r '[.[].id]|join(",")' "$CAND")" = "no-blower,trash" ] && ok "candidate ids are slugged" || fail "candidate ids" "$(cat "$CAND")"
+assert_contains "not from the project file" "a project build drops a sweater rule, which belongs in the sweater file"
+[ "$(jq -r '[.[].id]|join(",")' "$CAND")" = "no-blower,mow-reminder" ] && ok "candidate ids are slugged" || fail "candidate ids" "$(cat "$CAND")"
 [ "$(jq -r '[.[].mode]|unique|join(",")' "$CAND")" = "shadow" ] && ok "every candidate is shadow" || fail "candidate modes"
 assert_no_file "$CHK" "a build writes no checks file"
 assert_no_file "$PEEK/rules/.lock" "the lock is released after a build"
@@ -296,7 +298,7 @@ assert_contains "would have reminded 0 time(s)" "a reminder check reports remind
 
 section "peek rules build - a rebuild skips what was approved or rejected"
 capture env GRANDMA_PEEK_CLAUDE="$FR/claude" "$G" peek rules build home-ops yard
-assert_contains "6 proposed, 0 kept" "nothing already answered is proposed again"
+assert_contains "7 proposed, 0 kept" "nothing already answered is proposed again"
 assert_contains "already approved" "names the approved one"
 assert_contains "rejected before" "names the rejected one"
 
@@ -315,6 +317,76 @@ capture "$G" peek mode home-ops yard nope enforce
 printf '# yard\n- never mow wet grass\n' > "$YARD/CLAUDE.md"
 capture "$G" peek rules home-ops yard
 assert_contains "STALE" "a check whose line left memory is listed as stale"
+
+section "peek rules build - the prompt carries the project first and what really ran"
+# A shim that keeps the system prompt it was handed, file or inline, so the test can read it.
+FP="$TMP/rp"; mkdir -p "$FP"
+cat > "$FP/claude" <<'FPEOF'
+#!/usr/bin/env bash
+case "${1:-}" in --version|-v) echo "0.0.0 (fake)"; exit 0 ;; --help) echo "  --append-system-prompt[-file] <prompt>"; exit 0 ;; esac
+dir="$(cd "$(dirname "$0")" && pwd)"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --append-system-prompt-file) cp "$2" "$dir/.prompt"; shift ;;
+    --append-system-prompt) printf '%s' "$2" > "$dir/.prompt"; shift ;;
+  esac
+  shift
+done
+echo '{"checks":[]}'
+FPEOF
+chmod +x "$FP/claude"
+printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"s1","name":"Bash","input":{"command":"cd /x && python3 rake.py --yard 0123456789abcdef0123 && python3 - <<EOF\nprint(1)\n# a long inline step that pads this command well past the cut so the named step is hidden from the digest head\ncall(\"leaf-blower\")\nEOF"}}]}}' \
+  '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"s2","name":"Bash","input":{"command":"curl -H \"Authorization: Bearer sk-live-PLANTEDSECRET1234\" https://api.example/x?token=PLANTEDTOKEN99"}}]}}' \
+  '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"s3","name":"Write","input":{"file_path":"/x/notes/today.md","content":"hi"}}]}}' > "$TR/shapes.jsonl"
+printf '# yard\n- never run the `leaf-blower` before 9am\n' > "$YARD/CLAUDE.md"
+capture env GRANDMA_PEEK_CLAUDE="$FP/claude" GRANDMA_PEEK_TRANSCRIPTS="$TR" "$G" peek rules build home-ops yard
+assert_rc 0 "build with observed commands exits 0"
+PROMPT="$(cat "$FP/.prompt" 2>/dev/null)"
+case "$PROMPT" in *"MODE: project"*) ok "the prompt says it is a project build" ;; *) fail "no project mode line" ;; esac
+case "$PROMPT" in *"PROJECT INSTRUCTIONS"*"BEGIN project:CLAUDE.md"*"OTHER MEMORY"*) ok "the project file comes before the rest of memory" ;; *) fail "project file not first" ;; esac
+case "$PROMPT" in *"python3 rake.py --yard <id>"*) ok "observed commands reach the prompt, ids folded" ;; *) fail "observed command missing" "$(printf '%s' "$PROMPT" | grep -n rake)" ;; esac
+case "$PROMPT" in *"[later in it: leaf-blower]"*) ok "a named step past the cut is still listed" ;; *) fail "hidden named step lost" ;; esac
+case "$PROMPT" in *"/x/notes/today.md"*) ok "files written are listed" ;; *) fail "written file missing" ;; esac
+case "$PROMPT" in *PLANTEDSECRET*|*PLANTEDTOKEN*) fail "a secret reached the model" ;; *) ok "bearer and token values are redacted before the call" ;; esac
+
+section "peek rules - the checks file is named for the heading's first word"
+SHED="$GRANDMA_HOME/projects/shed"; mkdir -p "$SHED"
+printf '# shed\n- never run the table saw without the guard\n' > "$SHED/CLAUDE.md"
+printf '\n## Shed (Q3 rebuild, tools | v2)\n- source: %s/CLAUDE.md\n' "$SHED" >> "$GRANDMA_HOME/home-ops/projects.md"
+SHED_REPLY='{"checks":[{"id":"saw","kind":"forbid_command","cite":"never run the table saw without the guard","file":"project:CLAUDE.md","instead":"Fit the guard, then cut","match":"table-saw"}]}'
+FS="$(fake_claude_json "$TMP/r2" "$SHED_REPLY")"
+capture env GRANDMA_PEEK_CLAUDE="$FS/claude" "$G" peek rules build home-ops shed
+assert_rc 0 "build for a heading with spaces, brackets and a pipe exits 0"
+assert_file "$PEEK/candidates/home-ops/Shed.json" "candidates are named Shed.json"
+assert_contains "review home-ops Shed" "the review hint is a command that can be typed"
+capture bash -c "ROOT='$GRANDMA_HOME'; source '$ENGINE/lib/grandma-lib.sh'; grandma_peek_notice home-ops 'Shed (Q3 rebuild, tools | v2)'"
+assert_contains "review home-ops Shed" "the launch notice takes the full heading and names the short one"
+printf 'y\n' | "$G" peek rules review home-ops shed >/dev/null 2>&1
+assert_file "$GRANDMA_HOME/home-ops/peek/Shed.json" "approving writes Shed.json"
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-07T10:00:00Z","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"table-saw --cut"}}]}}' > "$TMP/shed.jsonl"
+capture python3 "$ENGINE/lib/grandma-peek-engine.py" replay "$TMP/shed.jsonl" --scope home-ops --project shed --json
+[ "$(printf '%s' "$LAST_OUT" | jq -r '[.. | .would_deny? // empty] | add // 0' 2>/dev/null)" = "1" ] && ok "replay finds the project file by the short name" || fail "replay by short name" "$LAST_OUT"
+capture bash -c "printf '%s' '{\"session_id\":\"r-shed\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"table-saw --cut\"},\"cwd\":\"$SHED\"}' | python3 '$ENGINE/lib/grandma-peek-engine.py' pre home-ops 'Shed (Q3 rebuild, tools | v2)'"
+assert_not_contains '"permissionDecision":"deny"' "a hook given the full heading reads Shed.json (shadow, so no deny)"
+[ -s "$PEEK/r-shed/decisions.jsonl" ] && ok "and logs a shadow decision for it" || fail "hook with the full heading found no checks"
+
+LB="$TMP/launch-bin"; mkdir -p "$LB"
+printf '#!/bin/sh\ncase "${1:-}" in --help) echo --append-system-prompt-file ;; esac\nexit 0\n' > "$LB/claude"; chmod +x "$LB/claude"
+capture env PATH="$LB:$PATH" GRANDMA_NO_SPLASH=1 GRANDMA_NO_KNIT_CHECK=1 GRANDMA_NO_UPDATE_CHECK=1 GRANDMA_NO_AUTOSAVE=1 "$G" home-ops shed </dev/null
+case "$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$SHED/.claude/settings.local.json" 2>/dev/null)" in *"grandma-peek-engine.py pre home-ops Shed 2>/dev/null || true") true ;; *) false ;; esac \
+  && ok "launching the project installs the peek hooks against Shed.json" || fail "peek hooks for a spaced heading" "$(cat "$SHED/.claude/settings.local.json" 2>/dev/null)"
+
+printf '\n## Shed (old one)\n- source: %s/CLAUDE.md\n' "$SHED" >> "$GRANDMA_HOME/home-ops/projects.md"
+FC="$(fake_claude_json "$TMP/r3" "$SHED_REPLY")"
+capture env GRANDMA_PEEK_CLAUDE="$FC/claude" "$G" peek rules build home-ops "Shed (Q3"
+[ "$LAST_RC" -ne 0 ] && ok "two headings with one first word are refused" || fail "collision accepted"
+assert_contains "would share one checks file" "and says why"
+[ "$(calls_of "$FC")" = "0" ] && ok "no model call for a colliding name" || fail "collision reached the model"
+
+section "peek rules build - a sweater build keeps sweater rules"
+capture env GRANDMA_PEEK_CLAUDE="$FR/claude" "$G" peek rules build home-ops
+assert_rc 0 "sweater build exits 0"
+[ "$(jq -r '[.[].id]|join(",")' "$PEEK/candidates/home-ops/_sweater.json" 2>/dev/null)" = "trash" ] && ok "only the sweater rule is kept" || fail "sweater candidates" "$(cat "$PEEK/candidates/home-ops/_sweater.json" 2>/dev/null)"
 
 section "peek rules build - guards stop the call (delta)"
 rm -rf "$PEEK/rules"

@@ -570,7 +570,7 @@ if [[ -n "$LAUNCH_DIR" ]]; then
   install_rehydrate_hook "$LAUNCH_DIR" "$SCOPE"
   install_session_end_hook "$LAUNCH_DIR" "$SCOPE" "$RP_NAME"
   install_precompact_hook "$LAUNCH_DIR" "$SCOPE" "$RP_NAME"
-  install_peek_hooks "$LAUNCH_DIR" "$SCOPE" "$RP_NAME"
+  install_peek_hooks "$LAUNCH_DIR" "$SCOPE" "$(peek_key "$RP_NAME")"
   [[ "${GRANDMA_HOOK_INSTALLED:-0}" == "1" || "${GRANDMA_AUTOSAVE_INSTALLED:-0}" == "1" || "${GRANDMA_CHECKPOINT_INSTALLED:-0}" == "1" || "${GRANDMA_PEEK_INSTALLED:-0}" == "1" ]] && \
     printf '  + installed grandma hooks (%s/.claude/settings.local.json)\n' "$RP_NAME" >&2
 fi
