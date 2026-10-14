@@ -119,4 +119,88 @@ assert_rc 1 "notify-test exits 1 when delivery fails"
 assert_file "$GRANDMA_HOME/.distill/notify.log" "failure is logged, not swallowed"
 
 echo
+
+# --------------------------------------------------------------- agent ----
+# The failure these guard: on macOS a launchd job cannot read ~/Documents without Full Disk
+# Access, so it fails every tick with "Operation not permitted" while launchctl still reports
+# it loaded. Claiming success there is a lie the user only discovers by never being notified.
+# launchctl is stubbed so both outcomes run on any platform.
+#
+# AGENTDIR and AGENTLOG must never be the real ones: a dev machine may have an agent using
+# them, and the suite would silently uninstall it while reporting green.
+AGENTDIR="$TMP/LaunchAgents"; mkdir -p "$AGENTDIR"
+AGENTLOG="$TMP/watch-agent.log"
+
+section "watch — a tick stamps proof that it could read the engine and write the home"
+rm -f "$GRANDMA_HOME/.watch-checked"
+capture env PATH="/usr/bin:/bin" "$GBIN" watch tick
+assert_file "$GRANDMA_HOME/.watch-checked" "a tick leaves the stamp install-agent waits for"
+
+section "watch — an agent that loads but cannot run is reported, not called installed"
+LCW="$TMP/lcbin-watch"; mkdir -p "$LCW"
+cat > "$LCW/launchctl" <<'LCS'
+#!/usr/bin/env bash
+case "$1" in
+  load|unload) exit 0 ;;
+  list) printf '%s\t%s\t%s\n' "-" "${FAKE_AGENT_STATUS:-0}" "com.grandma.watch" ;;
+esac
+exit 0
+LCS
+chmod +x "$LCW/launchctl"
+printf '/bin/bash: /x/grandma-watch.sh: Operation not permitted\n' > "$AGENTLOG"
+
+# the job never ticks, so the stamp never comes back
+capture env PATH="$LCW:/usr/bin:/bin" FAKE_AGENT_STATUS=126 \
+  GRANDMA_WATCH_AGENT_DIR="$AGENTDIR" GRANDMA_WATCH_AGENT_LOG="$AGENTLOG" \
+  "$GBIN" watch install-agent
+assert_rc 1 "an agent that cannot run exits non-zero"
+assert_contains "did not run" "it says the tick never ran"
+assert_contains "launchd exit 126" "and reports what launchd recorded"
+assert_contains "Operation not permitted" "and quotes what launchd actually said"
+assert_contains "macOS file protection" "and explains the cause in plain terms"
+assert_contains "move the engine" "offering the simpler remedy first"
+assert_contains "Full Disk Access" "and the other one"
+assert_contains "has been removed" "the broken job is taken back out, not left failing every day"
+assert_no_file "$AGENTDIR/com.grandma.watch.plist" "and its plist is gone"
+assert_contains "tick at every grandma launch" "and it says what still works"
+
+section "watch — an agent that really ticks is reported as live"
+LCW2="$TMP/lcbin-watch2"; mkdir -p "$LCW2"
+cat > "$LCW2/launchctl" <<LCS2
+#!/usr/bin/env bash
+case "\$1" in
+  load) date +%s > "$GRANDMA_HOME/.watch-checked"; exit 0 ;;   # a working agent ticks on load
+  unload) exit 0 ;;
+  list) printf '%s\t%s\t%s\n' "1234" "0" "com.grandma.watch" ;;
+esac
+exit 0
+LCS2
+chmod +x "$LCW2/launchctl"
+capture env PATH="$LCW2:/usr/bin:/bin" \
+  GRANDMA_WATCH_AGENT_DIR="$AGENTDIR" GRANDMA_WATCH_AGENT_LOG="$AGENTLOG" \
+  "$GBIN" watch install-agent
+assert_rc 0 "a working agent exits 0"
+assert_contains "is live" "and is only called live once a tick has actually happened"
+assert_contains "20:00" "naming when it runs"
+assert_contains "uninstall-agent" "and how to remove it"
+assert_file "$AGENTDIR/com.grandma.watch.plist" "the plist is kept"
+
+section "watch — the plist carries the memory home the agent must use"
+capture grep -c "GRANDMA_HOME" "$AGENTDIR/com.grandma.watch.plist"
+assert_rc 0 "GRANDMA_HOME is passed to the agent, not left to launchd's empty environment"
+capture grep -c "RunAtLoad" "$AGENTDIR/com.grandma.watch.plist"
+assert_rc 0 "RunAtLoad is set, which is what makes the install check possible"
+
+section "watch — uninstall-agent removes it"
+capture env PATH="$LCW2:/usr/bin:/bin" GRANDMA_WATCH_AGENT_DIR="$AGENTDIR" \
+  "$GBIN" watch uninstall-agent
+assert_rc 0 "uninstall-agent exits 0"
+assert_contains "removed" "and says so"
+assert_no_file "$AGENTDIR/com.grandma.watch.plist" "the plist is gone"
+
+capture env PATH="$LCW2:/usr/bin:/bin" GRANDMA_WATCH_AGENT_DIR="$AGENTDIR" \
+  "$GBIN" watch uninstall-agent
+assert_rc 0 "removing one that is not installed is not an error"
+assert_contains "no background agent" "and says nothing was there"
+
 if [ "$FAILS" -eq 0 ]; then echo "cmd_watch: PASS"; else echo "cmd_watch: $FAILS FAILURE(S)"; exit 1; fi
