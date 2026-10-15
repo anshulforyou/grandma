@@ -86,6 +86,20 @@ class PeekEngine(unittest.TestCase):
         self.allow(self.run_hook(tool='Read', inp={'file_path': 'badword.md'}))
         self.allow(self.run_hook(tool='Edit', inp={'file_path': 'a.md', 'old_string': 'badword', 'new_string': 'clean'}))
 
+    def test_brace_paths_and_bash_scope(self):
+        self.checks([self.check(kind='forbid_text', paths='*.{ts,tsx}', match='.')])
+        self.deny(self.run_hook(tool='Write', inp={'file_path': 'src/a.tsx', 'content': 'x'}, sid='tsx'))
+        self.deny(self.run_hook(tool='Write', inp={'file_path': 'src/a.ts', 'content': 'x'}, sid='ts'))
+        self.allow(self.run_hook(tool='Write', inp={'file_path': 'notes.md', 'content': 'x'}))
+        # A scoped check reads a shell command only when the command names a matching path.
+        self.allow(self.run_hook(inp={'command': 'ls -la && git status'}))
+        self.deny(self.run_hook(inp={'command': "cat > src/b.ts <<'EOF'\nx\nEOF"}, sid='bash'))
+        check = self.need()
+        check['needs'] = {'tool': 'Read', 'match': '*/turn-*.{md,txt}'}
+        self.checks([check])
+        self.batch('Read', {'file_path': '/tmp/turn-7.txt'})
+        self.allow(self.run_hook(inp={'command': 'PATCH turn 7'}))
+
     def test_large_multiline_and_ere(self):
         self.checks([self.check(kind='forbid_text', paths='*', match='[[:upper:]]{3}[[:digit:]]+')])
         self.deny(self.run_hook(tool='Write', inp={'file_path': 'a.md', 'content': 'a\n' * 150000 + 'ABC123'}))

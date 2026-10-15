@@ -44,7 +44,9 @@ A shell command the memory forbids. `match` is matched against the Bash command.
 
 ### forbid_text
 
-Text the memory forbids in what gets written. `paths` is a glob for the file being written, `*` for any. `match` runs against the new text of a Write or an Edit, and against the whole Bash command for anything written from the shell.
+Text the memory forbids in what gets written. `paths` is a glob for the file being written, and `{a,b}` alternatives work, such as `*.{ts,tsx}`. `match` runs against the new text of a Write or an Edit, and against the whole Bash command when that command names a path matching `paths`.
+
+Scope `paths` to where the forbidden text would really be produced, such as the folder that holds ad copy or mockups. Use `*` only when the rule truly covers every file. A check that covers every file also covers the memory and notes that state the rule, and those quote the forbidden words, so a broad path blocks the user from editing their own rules.
 
     {"id": "no-todo-in-docs", "kind": "forbid_text", "cite": "Docs never ship with a TODO in them", "file": "<path>", "instead": "Finish the section or open an issue for it", "paths": "*.md", "match": "TODO"}
 
@@ -71,6 +73,8 @@ A rule that needs judgement and cannot be matched, such as a rule about what a f
 - **Facts.** A line that describes the world and asks for no behaviour is not a rule.
 - **Rules about the user's own actions**, or anything outside a tool call or a final message.
 - **Duplicates.** One check per rule.
+
+A trigger that matches every call, such as `.*`, tells no call from another and is thrown away. If a rule has no moment of its own, skip it.
 
 Prefer a narrow pattern that misses an odd case over a broad one that blocks correct work. A check that blocks a correct action stops the session for nothing.
 

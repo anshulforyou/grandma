@@ -110,6 +110,19 @@ def slug(value, fallback):
     return value or fallback
 
 
+def triggers(check):
+    """The patterns that decide when a check fires. allow_if and a prerequisite may be broad."""
+    kind = check['kind']
+    if kind == 'require_before':
+        return [check['gate']['match']]
+    if kind == 'recall_on':
+        return [check['trigger']['match']]
+    if kind == 'forbid_text' and check.get('paths') != '*':
+        # Every write to a scoped path is a legitimate rule, such as no code in a design folder.
+        return []
+    return [check['match']] if 'match' in check else []
+
+
 def ingest(ctx, output_file):
     data = first_json(Path(output_file).read_text(errors='replace'))
     proposed = data.get('checks') if isinstance(data, dict) else data
@@ -142,6 +155,8 @@ def ingest(ctx, output_file):
             drop('malformed')
         elif any(engine.compile_ere(p) is None for p in engine.patterns(check)):
             drop('pattern does not compile')
+        elif any(engine.matches_anything(p) for p in triggers(check)):
+            drop('pattern matches every call')
         elif WAITING.search(check['instead']):
             drop('instead is not an action')
         elif ctx.project and check['file'] != 'project:CLAUDE.md':

@@ -142,6 +142,38 @@ def has_key(key, target):
     return bool(key) and re.search(r'(?<![0-9A-Za-z])' + re.escape(key) + r'(?![0-9A-Za-z])', target) is not None
 
 
+BRACES = re.compile(r'\{([^{}]*,[^{}]*)\}')
+WORDS = re.compile(r'[^\s\'"<>|;&()`]+')
+
+
+def expand_braces(glob, limit=64):
+    """Shell-style {a,b} alternatives as plain globs, since fnmatch has none."""
+    out, todo = [], [glob]
+    while todo and len(out) + len(todo) <= limit:
+        item = todo.pop()
+        group = BRACES.search(item)
+        if not group:
+            out.append(item)
+            continue
+        todo.extend(item[:group.start()] + alt + item[group.end():] for alt in group.group(1).split(','))
+    return out + todo
+
+
+def path_match(path, glob):
+    return any(fnmatch.fnmatchcase(path, g) for g in expand_braces(glob))
+
+
+def names_path(command, glob):
+    # A shell command has no single destination, so a scoped text check applies when the command names a matching path.
+    return glob == '*' or any(path_match(word, glob) for word in WORDS.findall(command))
+
+
+def matches_anything(pattern):
+    """True when a pattern hits every input, so it can never tell one call from another."""
+    compiled = compile_ere(pattern)
+    return compiled is not None and all(compiled.search(sample) for sample in ('q', '-', 'Zq9 x/y.z --k'))
+
+
 def nonempty(value):
     return isinstance(value, str) and bool(value.strip()) and '\0' not in value
 
@@ -330,7 +362,8 @@ def decide(checks, tool, inp, ledger, prompt, state):
             if 'allow_if' in check:
                 matcher.add(check['allow_if'], text)
         elif kind == 'forbid_text' and tool in ('Write', 'Edit', 'MultiEdit', 'Bash'):
-            if tool != 'Bash' and not fnmatch.fnmatchcase(inp.get('file_path', ''), check['paths']):
+            if not (names_path(text, check['paths']) if tool == 'Bash'
+                    else path_match(inp.get('file_path', ''), check['paths'])):
                 continue
             match, value = check['match'], surface(tool, inp)
         elif kind in ('require_before', 'recall_on'):
@@ -365,7 +398,7 @@ def decide(checks, tool, inp, ledger, prompt, state):
             needs = check['needs']
             satisfied = any(entry.get('outcome') == 'ok' and entry.get('tool') == needs['tool']
                             and (not check.get('key') or has_key(key, entry.get('target', '')))
-                            and (fnmatch.fnmatchcase(entry.get('target', ''), needs['match'])
+                            and (path_match(entry.get('target', ''), needs['match'])
                                  if needs['tool'] == 'Read' else matcher.hit(needs['match'], entry.get('target', '')))
                             for entry in ledger[start:])
             if satisfied:

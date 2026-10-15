@@ -228,7 +228,7 @@ rm -rf "$GRANDMA_HOME/home-ops/peek" "$PEEK/candidates" "$PEEK/rules"
 CAND="$PEEK/candidates/home-ops/Yard.json"
 CHK="$GRANDMA_HOME/home-ops/peek/Yard.json"
 
-# Seven proposals, fenced and wrapped in prose the way models answer. Only two are sound.
+# Nine proposals, fenced and wrapped in prose the way models answer. Only two are sound.
 RULES_REPLY='Here are the checks:
 ```json
 {"checks":[
@@ -238,7 +238,9 @@ RULES_REPLY='Here are the checks:
 {"id":"bad","kind":"forbid_command","cite":"never mow wet grass","file":"project:CLAUDE.md","instead":"Use the trimmer","match":"("},
 {"id":"waity","kind":"forbid_command","cite":"never mow wet grass","file":"project:CLAUDE.md","instead":"Wait until it dries","match":"mow"},
 {"id":"Mow Reminder","kind":"recall_on","cite":"never mow wet grass","file":"project:CLAUDE.md","instead":"Check the lawn is dry","trigger":{"tool":"Bash","match":"mower"}},
-{"id":"trash","kind":"recall_on","cite":"trash goes out Sunday night","file":"home-ops/facts.md","instead":"Put the bins out","trigger":{"tool":"Bash","match":"trash"}}
+{"id":"trash","kind":"recall_on","cite":"trash goes out Sunday night","file":"home-ops/facts.md","instead":"Put the bins out","trigger":{"tool":"Bash","match":"trash"}},
+{"id":"always","kind":"recall_on","cite":"never mow wet grass","file":"project:CLAUDE.md","instead":"Check the lawn is dry","trigger":{"tool":"Bash","match":".*"}},
+{"id":"any-write","kind":"forbid_text","cite":"never mow wet grass","file":"project:CLAUDE.md","instead":"Use the trimmer","paths":"*","match":"."}
 ]}
 ```'
 
@@ -255,11 +257,12 @@ section "peek rules build - only sound proposals survive, none enforce"
 capture env GRANDMA_PEEK_CLAUDE="$FR/claude" "$G" peek rules build home-ops yard
 assert_rc 0 "build exits 0"
 assert_not_contains "unbound variable" "survives set -u"
-assert_contains "7 proposed, 2 kept" "keeps the two sound checks of seven"
+assert_contains "9 proposed, 2 kept" "keeps the two sound checks of nine"
 assert_contains "cite not verbatim in memory" "drops a cite that is not word for word in memory"
 assert_contains "unknown kind" "drops an unknown kind"
 assert_contains "pattern does not compile" "drops a pattern that does not compile"
 assert_contains "instead is not an action" "drops an instead that only says to wait"
+assert_contains "dropped 2: pattern matches every call" "drops a trigger that fires on every call"
 assert_contains "not from the project file" "a project build drops a sweater rule, which belongs in the sweater file"
 [ "$(jq -r '[.[].id]|join(",")' "$CAND")" = "no-blower,mow-reminder" ] && ok "candidate ids are slugged" || fail "candidate ids" "$(cat "$CAND")"
 [ "$(jq -r '[.[].mode]|unique|join(",")' "$CAND")" = "shadow" ] && ok "every candidate is shadow" || fail "candidate modes"
@@ -298,7 +301,7 @@ assert_contains "would have reminded 0 time(s)" "a reminder check reports remind
 
 section "peek rules build - a rebuild skips what was approved or rejected"
 capture env GRANDMA_PEEK_CLAUDE="$FR/claude" "$G" peek rules build home-ops yard
-assert_contains "7 proposed, 0 kept" "nothing already answered is proposed again"
+assert_contains "9 proposed, 0 kept" "nothing already answered is proposed again"
 assert_contains "already approved" "names the approved one"
 assert_contains "rejected before" "names the rejected one"
 
