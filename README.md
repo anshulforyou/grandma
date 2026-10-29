@@ -230,6 +230,20 @@ Eight recipes with real transcripts in [docs/use-cases.md](docs/use-cases.md):
 7. Find out why your sessions drag
 8. Grandma is not just for work
 
+## Her voice: grandma-yawn
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/anshulforyou/grandma-yawn/main/assets/grandma-yawn.gif" width="420" alt="grandma knitting your voice into text" />
+</p>
+
+[grandma-yawn](https://github.com/anshulforyou/grandma-yawn) is a separate macOS tool: hold Fn, talk, and your words are typed wherever your cursor is. Point it at your grandma home and it uses what she knows:
+
+- **Meetings land in the right sweater.** Transcripts go to that sweater's `meetings/` folder with a memory proposal for `grandma review`.
+- **Names come out right.** The people and projects in your memory are spelled the way you spell them.
+- **Ask about your screen.** Hold Fn+Control and ask "reply to this email" or "where's the fund raise at". She answers with a compact profile of you and the memory of whatever sweater or project you name, routed the way grandma routes.
+
+It reads memory the way grandma does, root memory files only, never `secrets/`. Unlike grandma, those features send the memory they use to Anthropic's API, so they are off until you turn them on.
+
 ## Why files, why git
 
 |  | grandma | one big CLAUDE.md | hosted AI memory | vector memory stores |
@@ -256,6 +270,7 @@ grandma init | doctor          setup and health checks
 grandma save <sweater> [project] distill a finished session into memory
 grandma review [sweater]         review what background distills proposed
 grandma search [sweater] <query> grep across your memory
+grandma status                   one screen for the whole memory home
 grandma ingest [sweater]         catalog an existing folder of projects
 grandma watch ...              analysis campaigns over your sessions
 grandma test [sweater]           verify the integrity invariants
@@ -272,7 +287,7 @@ grandma knit install-agent       check for shares every 60s (opt-in)
   hooks (upstream issue), so the end-of-session distill only runs on Ctrl+D. Manual
   fallback always works: `grandma save <sweater>`.
 - Sweater names that collide with subcommands (`init`, `save`, `review`, `search`,
-  `ingest`, `watch`, `knit`, `test`, `doctor`, `completions`, `update`, `version`, `help`) are
+  `status`, `ingest`, `watch`, `knit`, `test`, `doctor`, `completions`, `update`, `version`, `help`) are
   reserved, as are the folders grandma owns in your memory home (`global`, `proposals`,
   `watches`, `templates`). Grandma refuses those names when you knit a sweater rather than
   letting you make one it could never load.

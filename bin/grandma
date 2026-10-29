@@ -16,6 +16,7 @@
 #   grandma peek replay <file> --scope <sweater> [--project <name>] [--checks <file>] [--json]
 #   grandma peek rules [build|review] <sweater> [project]   checks derived from your memory
 #   grandma peek mode <sweater> [project] <id|all> shadow|enforce
+#   grandma status                     one screen for the whole memory home
 #   grandma ingest [sweater] [--root]  catalog a folder of projects into a sweater
 #   grandma watch <start|status|...>   analysis campaigns over your sessions
 #   grandma knit <share|pull|list>     share a project's memory with a teammate
@@ -40,6 +41,7 @@ case "$sub" in
   review)       shift; exec "$ENGINE/lib/grandma-review.sh" "$@" ;;
   search)       shift; exec "$ENGINE/lib/grandma-search.sh" "$@" ;;
   peek)         shift; exec "$ENGINE/lib/grandma-peek.sh" "$@" ;;
+  status)       shift; exec "$ENGINE/lib/grandma-status.sh" "$@" ;;
   ingest)       shift; exec "$ENGINE/lib/grandma-ingest.sh" "$@" ;;
   watch)        shift; exec "$ENGINE/lib/grandma-watch.sh" "$@" ;;
   knit)         shift; exec "$ENGINE/lib/grandma-knit.sh" "$@" ;;
@@ -48,6 +50,6 @@ case "$sub" in
   completions)  shift; exec "$ENGINE/lib/grandma-completions.sh" "$@" ;;
   update)       shift; exec "$ENGINE/lib/grandma-update.sh" "$@" ;;
   version|--version|-v) exec "$ENGINE/lib/grandma-update.sh" version ;;
-  help|-h|--help) sed -n '3,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  help|-h|--help) sed -n '3,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *)            exec "$ENGINE/lib/grandma-launch.sh" "$@" ;;
 esac
