@@ -46,9 +46,18 @@ briefly. When unsure and minor, skip.
 - Universal about the user -> global/ (identity, preferences, style).
 
 ## Mechanics of a capture
-- One fact per line. Update in place; newest wins. Absolute dates (YYYY-MM-DD). Bump the
-  file's `updated:` frontmatter. No LLM artifacts (no em-dashes, semicolons, arrows,
-  curly quotes). Link related memories with [[name]].
+- Every .md at a sweater's root and global/identity.md + global/preferences.md load into
+  every session. Keep them short:
+  - Before writing, search the file for the topic. If a line covers it, edit that line in
+    place (newest wins). Never add a second copy or a corrected copy beside the old one.
+  - One short rule or fact per line, under 300 chars. Write the rule, not the incident: no
+    quotes of the user, no "angry" or "furious", no story of what went wrong.
+  - Long detail, research logs and incident stories go in `<sweater>/notes/<topic>.md`, with
+    a one-line pointer in the loaded file.
+- Procedures learned the hard way (a tool quirk, a step that must come first) go into the
+  project's CLAUDE.md the moment they are learned, not at the end of the session.
+- Absolute dates (YYYY-MM-DD). Bump the file's `updated:` frontmatter. No LLM artifacts
+  (no em-dashes, semicolons, arrows, curly quotes). Link related memories with [[name]].
 - Announce each capture in exactly one line, then continue the actual work:
   ✓ noted (category) -> file: the fact, in a few words
 - Memory files are git-tracked and the user reviews diffs before committing. Do not

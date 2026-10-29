@@ -161,6 +161,21 @@ install_precompact_hook() {
   return 0
 }
 
+# Ensure the PreToolUse check that keeps always-loaded memory files short and free of copies.
+# Rolled out by sweater, one ring at a time: the memory home's config names the sweaters
+# (a "memwrite=a b" line, or "memwrite=all"), GRANDMA_MEMWRITE_SCOPES overrides it. Off when unset.
+install_memwrite_hook() {
+  local dir="$1" scope="$2"
+  [[ "${GRANDMA_NO_HOOK:-0}" == "1" ]] && return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local rings=" ${GRANDMA_MEMWRITE_SCOPES:-$(sed -n 's/^memwrite=//p' "$ROOT/config" 2>/dev/null | tail -1)} "
+  [[ "$rings" == *" all "* || "$rings" == *" $scope "* ]] || return 0
+  local script="$ENGINE/lib/grandma-memwrite-check.sh"
+  install_hook "$dir/.claude/settings.local.json" PreToolUse "Write|Edit|MultiEdit" \
+    "$script" "$(hook_cmd "$script")" 10 0 || true
+  return 0
+}
+
 # Common parent folder of a scope's registered projects (for onboarding new projects).
 scope_working_root() {
   local reg="$1/projects.md"
@@ -526,6 +541,7 @@ if [[ -n "$LAUNCH_DIR" ]]; then
   install_rehydrate_hook "$LAUNCH_DIR" "$SCOPE"
   install_session_end_hook "$LAUNCH_DIR" "$SCOPE" "$RP_NAME"
   install_precompact_hook "$LAUNCH_DIR" "$SCOPE" "$RP_NAME"
+  install_memwrite_hook "$LAUNCH_DIR" "$SCOPE"
   [[ "${GRANDMA_HOOK_INSTALLED:-0}" == "1" || "${GRANDMA_AUTOSAVE_INSTALLED:-0}" == "1" || "${GRANDMA_CHECKPOINT_INSTALLED:-0}" == "1" ]] && \
     printf '  + installed grandma hooks (%s/.claude/settings.local.json)\n' "$RP_NAME" >&2
 fi
