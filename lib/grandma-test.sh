@@ -175,7 +175,7 @@ echo "== 12. engine contains no personal data =="
 pd_ok=1
 # pattern assembled from parts so this file never matches itself
 pn="an""shu"
-hits="$(grep -rniE "$pn" "$ENGINE/lib" "$ENGINE/prompts" "$ENGINE/bin" "$ENGINE/templates" 2>/dev/null | grep -v 'grandma-test.sh' || true)"
+hits="$(grep -rniE --exclude-dir=__pycache__ "$pn" "$ENGINE/lib" "$ENGINE/prompts" "$ENGINE/bin" "$ENGINE/templates" 2>/dev/null | grep -v 'grandma-test.sh' || true)"
 [[ -n "$hits" ]] && { bad "personal name in engine: $(echo "$hits" | head -3)"; pd_ok=0; }
 up="/Use""rs/"
 hits2="$(grep -rn "$up" "$ENGINE/lib" "$ENGINE/prompts" "$ENGINE/bin" "$ENGINE/templates" 2>/dev/null | grep -v 'grandma-test.sh' || true)"
