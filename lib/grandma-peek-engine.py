@@ -257,6 +257,11 @@ def project_file(root, scope, project, cwd):
 
 def load_checks(root, scope, project, directory, cwd='', external=None):
     active = Path(external) if external else root / scope / 'peek' / (project + '.json' if project else '_sweater.json')
+    if not external and project and not active.is_file():
+        # Project names match case-insensitively everywhere else (the catalog lookup), so 'shed'
+        # must find Shed.json on a case-sensitive filesystem too.
+        active = next((p for p in sorted(active.parent.glob('*.json'))
+                       if p.stem.casefold() == project.casefold()), active)
     if not active.is_file():
         return []
     files = [active]
