@@ -632,6 +632,22 @@ distilled=0
 # The prompt travels as a FILE wherever the CLI takes one, so memory size is never bounded by
 # an argv limit. Older builds fall back to argv and are refused early, with an explanation,
 # rather than being walked into the kernel's own error.
+# A long session in this folder may have handed over to this one: take its note once.
+HANDOFF="$(handoff_path "$ROOT" "$SCOPE" "$PWD")"
+if [[ -f "$HANDOFF" && -z "$(find "$HANDOFF" -mmin +4320 2>/dev/null)" ]]; then
+  SYSPROMPT="$SYSPROMPT
+
+===== HANDOFF FROM THE PREVIOUS SESSION =====
+The previous session in this folder ran long and handed over to you. Continue from here, and
+keep every lesson and correction in it.
+
+$(cat "$HANDOFF")"
+  mkdir -p "$ROOT/.handoff/used"
+  mv "$HANDOFF" "$ROOT/.handoff/used/$(basename "$HANDOFF" .md).$(date +%Y%m%d-%H%M%S).md"
+  printf '  ⟳ picked up the handoff from the previous session\n' >&2
+fi
+# Hooks run under claude and inherit this: rehydrate names the command for a fresh session.
+export GRANDMA_SCOPE="$SCOPE" GRANDMA_PROJECT="${RP_NAME:-}" GRANDMA_LAUNCH_DIR="$PWD"
 prepare_sysprompt "$SYSPROMPT" "$SCOPE" "$ROOT" || exit 1
 # That file holds the whole memory bundle, so it must not survive us. EXIT is what makes it
 # true on EVERY path: HUP and TERM are handled below, but Ctrl+C is not trapped at all, and

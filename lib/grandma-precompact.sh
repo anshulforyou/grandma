@@ -47,6 +47,7 @@ CDIR="$ROOT/.compact"
 mkdir -p "$CDIR"
 find "$CDIR" -name '*.md'   -mmin +180 -delete 2>/dev/null || true   # prune stale session notes
 find "$CDIR" -name '.run.*' -mmin +10  -delete 2>/dev/null || true   # and stale cost-cap markers
+find "$CDIR" -name '*.count' -mtime +7 -delete 2>/dev/null || true   # and old compaction counts
 
 # COST CAP (airbag), independent of the recursion guard. Bound how many checkpoints run in a
 # short window so a pathological compaction loop cannot rack up model calls. A legit session
@@ -64,6 +65,9 @@ mkdir "$lock" 2>/dev/null || exit 0
 trap 'rmdir "$lock" 2>/dev/null || true' EXIT
 
 safe_sid="$(printf '%s' "$sid" | tr -cd '[:alnum:]._-')"
+# Count this session's compactions: rehydrate asks for a fresh session once there are a few.
+count_file="$CDIR/${safe_sid}.count"
+echo $(( $(cat "$count_file" 2>/dev/null || echo 0) + 1 )) > "$count_file"
 note="$CDIR/${safe_sid}.md"
 readable="$CDIR/.readable-${safe_sid}.md"
 

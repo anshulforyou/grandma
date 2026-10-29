@@ -178,6 +178,24 @@ for sid in ses-none ''; do
   done
 done
 
+section "rehydrate - a long session is asked to hand over to a fresh one"
+printf '== working state ==\nTask: ship the sitemap\n' > "$GRANDMA_HOME/.compact/ses-long.md"
+echo 2 > "$GRANDMA_HOME/.compact/ses-long.count"
+capture rehydrate ses-long globex --raw
+assert_not_contains "FRESH SESSION" "two compactions in a young session: no handover yet"
+echo 3 > "$GRANDMA_HOME/.compact/ses-long.count"
+capture env GRANDMA_PROJECT=billing GRANDMA_LAUNCH_DIR=/work/billing bash -c \
+  'printf "{\"session_id\":\"ses-long\"}" | "$1" globex --raw' _ "$REHY"
+assert_contains "ship the sitemap" "the continuity note still comes back"
+assert_contains "TIME FOR A FRESH SESSION" "a third compaction asks for a fresh session"
+assert_contains "$GRANDMA_HOME/.handoff/globex__work-billing.md" "the handoff goes where the next launch in that folder looks"
+assert_contains "cd /work/billing && grandma globex billing" "the fresh session is the same sweater and project"
+python3 -c 'import datetime;print("{\"timestamp\":\"%s\",\"type\":\"user\"}" % (datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(hours=25)).isoformat())' > "$TMP/old.jsonl"
+capture env GRANDMA_LAUNCH_DIR=/work/billing bash -c \
+  'printf "{\"session_id\":\"ses-none\",\"transcript_path\":\"%s\"}" "$2" | "$1" globex --raw' _ "$REHY" "$TMP/old.jsonl"
+assert_contains "has run 25 hours" "a session open a day is asked to hand over even with no note"
+rm -f "$GRANDMA_HOME/.compact/ses-long.count"
+
 section "rehydrate - a formatter failure cannot fail the session"
 mkdir -p "$TMP/broken-python"
 printf '#!/bin/sh\nexit 7\n' > "$TMP/broken-python/python3"

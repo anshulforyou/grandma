@@ -257,6 +257,13 @@ scope_name_is_reserved() {
 # Sweater and project names carry spaces and parentheses in the wild, and interpolating one
 # raw produced a command that died with a syntax error on every single session, silently:
 # no proposal, no checkpoint, no message. printf %q is the fix, and it is bash 3.2 safe.
+# Where a long session leaves its handoff for the fresh session that replaces it: one file per
+# sweater and working folder, picked up (and moved to used/) by the next launch in that folder.
+handoff_path() {
+  local root="$1" scope="$2" dir="$3"
+  printf '%s/.handoff/%s__%s.md' "$root" "$scope" "$(printf '%s' "$dir" | tr -c '[:alnum:]._\n-' '-' | sed 's/^-*//')"
+}
+
 hook_cmd() {
   local out a
   out='"${GRANDMA_ENGINE:-$HOME/.grandma-engine}"/lib/'"${1##*/}"; shift

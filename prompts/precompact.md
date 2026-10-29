@@ -5,13 +5,17 @@ flattens the detailed conversation into a lossy summary. Your job is to preserve
 STATE of the current task so the session continues at full quality afterward.
 
 Read the readable transcript at the path in the user message. Write a tight, plain-text
-continuity note, no more than about 200 words, holding only what is needed to keep going:
+continuity note, no more than about 300 words, holding only what is needed to keep going:
 
 - Task: what we are actually doing right now.
 - Decided: choices made and the reason, especially anything non-obvious.
 - Rejected: approaches tried and dropped, so we do not revisit them.
 - Done: concrete work already finished (files touched, steps completed).
 - Open: what is in progress and the immediate next step.
+- Learned: how-to lessons found the hard way this session, as rules (for example "switching
+  the editor between page versions drops unsaved edits, save first"), and every correction
+  the user made, in a few words each. These are the things a summary drops and a resumed
+  session repeats.
 
 Rules:
 - This is volatile working state for continuity, NOT durable memory. Do not propose memory

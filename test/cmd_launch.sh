@@ -117,6 +117,33 @@ else
   assert_contains "1 earlier memory change(s) still uncommitted" "the untouched dirty file stays out of the review"
 fi
 
+section "launch — a handoff from a long session is picked up once (pty)"
+SHIM_H="$TMP/binh"; mkdir -p "$SHIM_H"
+cat > "$SHIM_H/claude" <<EOF
+#!/usr/bin/env bash
+case "\${1:-}" in --version|-v) echo "0.0.0 (fake claude)"; exit 0 ;; \
+  --help) echo "  --append-system-prompt[-file] <prompt>"; exit 0 ;;
+esac
+[ "\${1:-}" = "-p" ] && exit 0
+while [ \$# -gt 0 ]; do [ "\$1" = --append-system-prompt-file ] && cat "\$2" > "$TMP/handoff-seen.txt"; shift; done
+exit 0
+EOF
+chmod +x "$SHIM_H/claude"
+mkdir -p "$TMP/hwork" "$GRANDMA_HOME/.handoff"
+HF="$(bash -c 'source "$1/lib/grandma-lib.sh"; handoff_path "$2" globex "$(cd "$3" && pwd)"' _ "$ENGINE" "$GRANDMA_HOME" "$TMP/hwork")"
+printf 'HANDOFF-NOTE: finish the sitemap\n' > "$HF"
+export SHIM_H HW="$TMP/hwork"
+out="$(printf 'n\n' | run_in_pty 'cd "$HW" && GRANDMA_HOME="$H_L" GRANDMA_NO_SPLASH=1 HOME="'"$TMP"'/fh" PATH="$SHIM_H:$PATH" "$GBIN_L" globex 2>&1')"
+prc=$?
+if [ "$prc" -eq 2 ]; then
+  skip "no usable pty tool — handoff pickup not exercised"
+else
+  grep -q "HANDOFF-NOTE: finish the sitemap" "$TMP/handoff-seen.txt" 2>/dev/null \
+    && ok "the fresh session starts with the handoff note" || fail "handoff note not in the session prompt" "$out"
+  [ ! -f "$HF" ] && [ -n "$(ls "$GRANDMA_HOME/.handoff/used/" 2>/dev/null)" ] \
+    && ok "the note is moved to used/ so it is taken once" || fail "handoff note left in place"
+fi
+
 section "launch — offers to review a prior session's proposal (pty)"
 # A window-closed session leaves a pending proposal; the next launch should OFFER to review it.
 cat > "$GRANDMA_HOME/proposals/globex-20260601T090000.md" <<'P'
