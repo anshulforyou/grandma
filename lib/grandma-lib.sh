@@ -245,7 +245,7 @@ scope_name_is_reserved() {
   q="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
   [[ -n "$q" ]] || return 0
   case "$q" in
-    init|save|review|search|ingest|watch|knit|mcp|test|doctor|completions|update|version|help) return 0 ;;
+    init|save|review|search|peek|ingest|watch|knit|mcp|test|doctor|completions|update|version|help) return 0 ;;
     global|proposals|watches|templates) return 0 ;;
   esac
   return 1
@@ -396,6 +396,24 @@ grandma_update_notice() {
 
 knit_pending_file() { printf '%s/.knit-pending' "$ROOT"; }
 knit_checked_file() { printf '%s/.knit-checked' "$ROOT"; }
+
+# peek_key <catalog heading> — the name a project's checks file goes by: the heading's first
+# word, with anything a filename or a command argument would trip on turned into a dash, so
+# 'billing (Q3 rewrite | API)' gives billing. Mirrors peek_key in grandma-peek-engine.py.
+peek_key() { local k="${1%%[[:space:]]*}"; printf '%s' "$k" | LC_ALL=C tr -c 'A-Za-z0-9._-' '-'; }
+
+# grandma_peek_notice <sweater> [project] — one line when proposed peek checks are waiting for a
+# yes. Candidates never enforce, so without this a build's output would sit unseen.
+grandma_peek_notice() {
+  local key n f
+  key="$(peek_key "${2:-}")"
+  f="$ROOT/.peek/candidates/$1/${key:-_sweater}.json"
+  [[ -s "$f" ]] || return 0
+  n="$(grep -c '"id":' "$f" 2>/dev/null | tr -cd '0-9')"
+  [[ "${n:-0}" -gt 0 ]] || return 0
+  printf '  🧶 %s proposed peek check(s) waiting, approve or reject: grandma peek rules review %s%s\n' \
+    "$n" "$1" "${key:+ $key}" >&2
+}
 
 # grandma_knit_notice — one line per waiting share, then a background refresh if the cache is
 # stale. Always returns 0: no gh, no network and no memory home are all normal states here.

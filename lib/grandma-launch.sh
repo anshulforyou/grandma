@@ -176,6 +176,45 @@ install_memwrite_hook() {
   return 0
 }
 
+# Install the deterministic hooks and keep the existing shadow grader and ledger sensors.
+# Skip with GRANDMA_NO_HOOK or GRANDMA_NO_PEEK.
+#
+# MessageDisplay does the grading and the other two only feed it a ledger of what actually ran.
+# The timeouts differ for a reason: MessageDisplay's default is 10s, the tightest of any event,
+# because Claude Code holds each batch of streaming text until the hook returns. peek returns
+# immediately on every batch except the last, and in v0 even the last one only hands the work to
+# a detached child, so it never spends that budget. It is raised to 15 anyway for the v1 path,
+# where the call becomes synchronous.
+install_peek_hooks() {
+  local dir="$1" scope="$2" project="$3"
+  [[ "${GRANDMA_NO_HOOK:-0}" == "1" || "${GRANDMA_NO_PEEK:-0}" == "1" ]] && return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  # Opt-in: only a project with approved checks gets the hooks. Measured at 40 to 55ms per tool
+  # call even with nothing to check, so installing them everywhere would tax every session.
+  [[ -f "$ROOT/$scope/peek/${project:-_sweater}.json" || -f "$ROOT/$scope/peek/_sweater.json" ]] || return 0
+  local cfg="$dir/.claude/settings.local.json" event mode timeout script cmd
+  for event in MessageDisplay PostToolBatch PostToolUseFailure PreToolUse UserPromptSubmit; do
+    timeout=10
+    case "$event" in
+      MessageDisplay) mode=display; timeout=15 ;;
+      PostToolBatch) mode="batch" ;;
+      PostToolUseFailure) mode=fail ;;
+      PreToolUse) mode=pre ;;
+      UserPromptSubmit) mode=prompt ;;
+    esac
+    if [[ "$mode" == display ]]; then
+      script="grandma-peek.sh"; cmd="$(hook_cmd "$script" "$mode" "$scope" "$project")"
+    else
+      # The per-tool hooks go straight to python3 -S: skipping the bash wrapper and site
+      # initialisation is most of the hook's cost. Errors stay off the user's screen.
+      script="grandma-peek-engine.py"
+      cmd="python3 -S $(hook_cmd "$script" "$mode" "$scope" "$project") 2>/dev/null || true"
+    fi
+    install_hook "$cfg" "$event" "" "$script" "$cmd" "$timeout" 0 && GRANDMA_PEEK_INSTALLED=1
+  done
+  return 0
+}
+
 # Common parent folder of a scope's registered projects (for onboarding new projects).
 scope_working_root() {
   local reg="$1/projects.md"
@@ -512,6 +551,11 @@ if [[ "${GRANDMA_DRY_RUN:-0}" == "1" ]]; then
         else
           echo "checkpoint:   would ensure PreCompact hook (session working-state saved before compaction, re-injected after)" >&2
         fi
+        if [[ "${GRANDMA_NO_PEEK:-0}" == "1" ]]; then
+          echo "peek:         skipped (GRANDMA_NO_PEEK=1)" >&2
+        else
+          echo "peek:         would ensure MessageDisplay + PostToolBatch + PostToolUseFailure hooks (v0 shadow mode: grades each message, renders nothing)" >&2
+        fi
       fi
     fi
   fi
@@ -542,7 +586,8 @@ if [[ -n "$LAUNCH_DIR" ]]; then
   install_session_end_hook "$LAUNCH_DIR" "$SCOPE" "$RP_NAME"
   install_precompact_hook "$LAUNCH_DIR" "$SCOPE" "$RP_NAME"
   install_memwrite_hook "$LAUNCH_DIR" "$SCOPE"
-  [[ "${GRANDMA_HOOK_INSTALLED:-0}" == "1" || "${GRANDMA_AUTOSAVE_INSTALLED:-0}" == "1" || "${GRANDMA_CHECKPOINT_INSTALLED:-0}" == "1" ]] && \
+  install_peek_hooks "$LAUNCH_DIR" "$SCOPE" "$(peek_key "$RP_NAME")"
+  [[ "${GRANDMA_HOOK_INSTALLED:-0}" == "1" || "${GRANDMA_AUTOSAVE_INSTALLED:-0}" == "1" || "${GRANDMA_CHECKPOINT_INSTALLED:-0}" == "1" || "${GRANDMA_PEEK_INSTALLED:-0}" == "1" ]] && \
     printf '  + installed grandma hooks (%s/.claude/settings.local.json)\n' "$RP_NAME" >&2
 fi
 
@@ -578,6 +623,9 @@ grandma_update_notice
 # A teammate's shared project memory waiting to be pulled. Reads a cache written by a detached
 # poll, so this never waits on GitHub (silence with GRANDMA_NO_KNIT_CHECK=1).
 grandma_knit_notice
+
+# Proposed peek checks waiting for approval in this project.
+grandma_peek_notice "$SCOPE" "${RP_NAME:-}"
 
 # Notice uncommitted memory changes (in-flight captures land as diffs you review).
 dirty="$(git -C "$ROOT" status --porcelain -- '*.md' 2>/dev/null | wc -l | tr -d ' ')"

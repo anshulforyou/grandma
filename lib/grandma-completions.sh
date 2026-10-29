@@ -26,10 +26,11 @@ source "$ENGINE/lib/grandma-lib.sh"
 
 # First-word candidates that are NOT sweaters: the reserved subcommands (keep in sync with
 # bin/grandma). A sweater whose name collides with one of these is shadowed, as documented.
-SUBCOMMANDS="init save review search ingest watch knit mcp test doctor completions update version help"
+SUBCOMMANDS="init save review search peek ingest watch knit mcp test doctor completions update version help"
 WATCH_COMMANDS="start tick list status report finish notify-test install-agent"
 KNIT_COMMANDS="share pull list contacts install-agent uninstall-agent"
 MCP_COMMANDS="list add remove strict"
+PEEK_COMMANDS="replay rules mode --session --json"
 
 # _gc_scopes - completable first words: every sweater, then the subcommands.
 _gc_scopes() {
@@ -74,7 +75,7 @@ _gc_emit_bash() {
 _grandma_complete() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
   if [[ "$cur" == -* ]]; then
-    COMPREPLY=( $(compgen -W "--full --writing" -- "$cur") )
+    COMPREPLY=( $(compgen -W "--full --writing --scope --project --checks --json --session" -- "$cur") )
     return 0
   fi
   if [[ ${COMP_CWORD} -eq 1 ]]; then
@@ -83,6 +84,8 @@ _grandma_complete() {
     case "${COMP_WORDS[1]}" in
       save|review|ingest|test|search)
         COMPREPLY=( $(compgen -W "$(grandma completions __scopes 2>/dev/null)" -- "$cur") ) ;;
+      peek)
+        COMPREPLY=( $(compgen -W "$(grandma completions __peek_commands 2>/dev/null)" -- "$cur") ) ;;
       watch)
         COMPREPLY=( $(compgen -W "$(grandma completions __watch_commands 2>/dev/null)" -- "$cur") ) ;;
       knit)
@@ -113,7 +116,7 @@ _grandma_complete() {
   local cur="${words[CURRENT]}"
   local -a scopes watch_commands knit_commands lines toks descs
   if [[ "$cur" == -* ]]; then
-    compadd -- --full --writing
+    compadd -- --full --writing --scope --project --checks --json --session
     return 0
   fi
   if (( CURRENT == 2 )); then
@@ -136,6 +139,10 @@ _grandma_complete() {
       save|review|ingest|test|search)
         scopes=(${(f)"$(grandma completions __scopes 2>/dev/null)"})
         compadd -a scopes ;;
+      peek)
+        local -a peek_commands
+        peek_commands=(${(f)"$(grandma completions __peek_commands 2>/dev/null)"})
+        compadd -a peek_commands ;;
       watch)
         watch_commands=(${(f)"$(grandma completions __watch_commands 2>/dev/null)"})
         compadd -a watch_commands ;;
@@ -167,6 +174,8 @@ _gc_emit_fish() {
 # grandma fish completion. Enable with:  grandma completions fish | source
 complete -c grandma -f
 complete -c grandma -l full -l writing
+complete -c grandma -n 'test (commandline -opc)[2] = peek' -l scope -l project -l checks -l json -l session
+complete -c grandma -n 'test (count (commandline -opc)) -eq 2; and test (commandline -opc)[2] = peek' -a '(grandma completions __peek_commands 2>/dev/null)'
 complete -c grandma -n 'test (count (commandline -opc)) -eq 1' -a '(grandma completions __scopes 2>/dev/null)'
 complete -c grandma -n 'test (count (commandline -opc)) -eq 2; and test (commandline -opc)[2] = knit' -a '(grandma completions __knit_commands 2>/dev/null)'
 complete -c grandma -n 'test (count (commandline -opc)) -eq 2; and test (commandline -opc)[2] != knit' -a '(grandma completions __projects (commandline -opc)[2] 2>/dev/null)'
@@ -184,5 +193,6 @@ case "${1:-}" in
   __watch_commands) _gc_watch_commands ;;
   __knit_commands)  _gc_knit_commands ;;
   __mcp_commands)   _gc_mcp_commands ;;
+  __peek_commands)  printf '%s\n' $PEEK_COMMANDS ;;
   *)           echo "usage: grandma completions <bash|zsh|fish>" >&2; exit 2 ;;
 esac

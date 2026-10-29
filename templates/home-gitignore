@@ -2,6 +2,7 @@
 proposals/
 watches/
 .distill/
+.peek/
 .update-state
 .update-nudged
 .knit/
