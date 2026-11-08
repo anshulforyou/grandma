@@ -42,5 +42,36 @@ assert_not_contains "proposals" "proposals/ is excluded"
 assert_not_contains "watches" "watches/ is excluded"
 assert_not_contains "distill" ".distill/ is excluded"
 
+section "test — core purity does not trip on the example names the docs hand people (#35)"
+# These used to appear as examples in user-facing core strings, so a sweater with the very name
+# the README suggested failed check 2 forever. home matched $HOME and GRANDMA_HOME everywhere.
+for name in job-search reddit acme; do
+  _fx_md "$GRANDMA_HOME/$name/facts.md" "$name" facts "# $name facts"
+done
+capture env "$GBIN" test
+assert_not_contains "scope name 'job-search'" "job-search is not in any core file"
+assert_not_contains "scope name 'reddit'" "reddit is not in any core file"
+assert_not_contains "scope name 'acme'" "acme is not in any core file"
+rm -rf "${GRANDMA_HOME:?}/job-search" "${GRANDMA_HOME:?}/reddit" "${GRANDMA_HOME:?}/acme"
+
+_fx_md "$GRANDMA_HOME/home/facts.md" home facts "# home facts"
+capture env "$GBIN" test
+assert_not_contains "grandma-update.sh' hardcodes scope name 'home'" "an uppercase \$HOME is not a scope literal"
+
+section "test — purity-allow.txt accepts an ordinary-word sweater, and only that one"
+# `work` is everywhere in prompt prose, so it fails check 2 until the user accepts it.
+_fx_md "$GRANDMA_HOME/work/facts.md" work facts "# work facts"
+capture env "$GBIN" test
+assert_rc 1 "an ordinary-word sweater fails check 2 by default"
+assert_contains "add 'work' to" "and the failure says how to accept it"
+printf 'work\n' > "$GRANDMA_HOME/purity-allow.txt"
+capture env "$GBIN" test
+assert_not_contains "scope name 'work'" "an allowed name is no longer flagged"
+assert_contains "scope name 'home'" "a name that is not allowed still is"
+printf 'work\nhome\n' > "$GRANDMA_HOME/purity-allow.txt"
+capture env "$GBIN" test
+assert_rc 0 "green once both are accepted"
+rm -rf "${GRANDMA_HOME:?}/work" "${GRANDMA_HOME:?}/home" "$GRANDMA_HOME/purity-allow.txt"
+
 echo
 if [ "$FAILS" -eq 0 ]; then echo "cmd_test: PASS"; else echo "cmd_test: $FAILS FAILURE(S)"; exit 1; fi

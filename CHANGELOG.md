@@ -9,6 +9,12 @@
   header. The appended system prompt already survives compaction. Context is capped at
   9,000 characters, cut at a line boundary with a truncation notice when needed.
   A session with no note emits no context.
+- Fixed: `grandma test` check 2 failed for sweaters named after ordinary words, including the very
+  names the README and the new-sweater prompt suggested (`job-search`, `reddit`, `acme`). Those
+  examples are gone from core files, an all-uppercase match like `$HOME` no longer counts as a
+  scope name, and trailing comments in scripts are ignored. A sweater named after a word that
+  still shows up in prompt prose (`work`, `writing`) can be accepted once by adding its name to
+  `purity-allow.txt` in the memory home; every other name stays checked. (#35)
 
 - New: a sweater can bind its own MCP servers, and they reach every project in that sweater and
   nothing outside it. Put a Notion workspace on one sweater and it is there in all of that

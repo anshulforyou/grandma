@@ -9,7 +9,7 @@ Your job: turn the description into a clean new sweater, then STOP (do not start
 work of that sweater in this session).
 
 ## Steps
-1. Propose a short kebab-case sweater name (e.g. `job-search`, `writing`, `acme-corp`).
+1. Propose a short kebab-case sweater name, taken from the user's own words for it.
    Confirm it with the user before creating anything. Lowercase.
 2. Create the sweater folder `<name>/` with a `facts.md` (frontmatter: `scope: <name>`,
    `type: facts`, `updated: <date from this conversation>`). Distill the description into
