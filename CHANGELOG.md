@@ -9,6 +9,11 @@
   header. The appended system prompt already survives compaction. Context is capped at
   9,000 characters, cut at a line boundary with a truncation notice when needed.
   A session with no note emits no context.
+- Fixed: clicking a notification sent through `terminal-notifier` did nothing you could see. Its
+  click action runs the command through `/bin/sh` with no terminal and launchd's bare PATH, so
+  `grandma watch report <slug>` either was not found or printed the report into nothing. The click
+  now opens a one-shot `.command` file that macOS runs in a Terminal window: the engine by
+  absolute path, the same `GRANDMA_HOME`, every word quoted, and the file deletes itself. (#37)
 
 - New: a sweater can bind its own MCP servers, and they reach every project in that sweater and
   nothing outside it. Put a Notion workspace on one sweater and it is there in all of that
