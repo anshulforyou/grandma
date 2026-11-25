@@ -15,6 +15,11 @@ export HOME="$TMP/fakehome"; mkdir -p "$HOME"
 export GRANDMA_HOME="$TMP/home"; export SHELL=""
 make_fixture_home "$GRANDMA_HOME"
 
+section "watch — usage"
+capture env "$GBIN" watch
+assert_rc 2 "watch with no subcommand prints usage"
+assert_contains "uninstall-agent" "the usage lists every subcommand, including the last one"
+
 section "watch — start"
 capture env "$GBIN" watch start "why are sessions long" --days 14
 assert_rc 0 "watch start runs"
@@ -132,9 +137,9 @@ AGENTDIR="$TMP/LaunchAgents"; mkdir -p "$AGENTDIR"
 AGENTLOG="$TMP/watch-agent.log"
 
 section "watch — a tick stamps proof that it could read the engine and write the home"
-rm -f "$GRANDMA_HOME/.watch-checked"
+rm -f "$GRANDMA_HOME/watches/.agent-checked"
 capture env PATH="/usr/bin:/bin" "$GBIN" watch tick
-assert_file "$GRANDMA_HOME/.watch-checked" "a tick leaves the stamp install-agent waits for"
+assert_file "$GRANDMA_HOME/watches/.agent-checked" "a tick leaves the stamp install-agent waits for"
 
 section "watch — an agent that loads but cannot run is reported, not called installed"
 LCW="$TMP/lcbin-watch"; mkdir -p "$LCW"
@@ -169,7 +174,7 @@ LCW2="$TMP/lcbin-watch2"; mkdir -p "$LCW2"
 cat > "$LCW2/launchctl" <<LCS2
 #!/usr/bin/env bash
 case "\$1" in
-  load) date +%s > "$GRANDMA_HOME/.watch-checked"; exit 0 ;;   # a working agent ticks on load
+  load) date +%s > "$GRANDMA_HOME/watches/.agent-checked"; exit 0 ;;   # a working agent ticks on load
   unload) exit 0 ;;
   list) printf '%s\t%s\t%s\n' "1234" "0" "com.grandma.watch" ;;
 esac

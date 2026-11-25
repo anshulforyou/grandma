@@ -44,7 +44,7 @@ watch_agent_plist() {
 # Every tick writes this, so its reappearance proves the agent can both read the engine and
 # write the memory home. Checked by existence, never by mtime: the stamp has one-second
 # granularity, so a tick landing in the same second as a baseline would be invisible.
-WATCH_STAMP="$ROOT/.watch-checked"
+WATCH_STAMP="$WATCHES/.agent-checked"
 
 claude_bin() {
   command -v claude 2>/dev/null && return 0
@@ -420,7 +420,7 @@ cmd_install_agent() {
     echo "  0 20 * * * $ENGINE/lib/grandma-watch.sh tick" >&2
     exit 1
   }
-  mkdir -p "$ROOT" "$(dirname "$plist")"
+  mkdir -p "$WATCHES" "$(dirname "$plist")"
 
   cat > "$plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -521,5 +521,5 @@ case "${1:-}" in
                  fi ;;
   install-agent)   cmd_install_agent ;;
   uninstall-agent) cmd_uninstall_agent ;;
-  *) sed -n '3,18p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) sed -n '3,19p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac
