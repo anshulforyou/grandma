@@ -190,10 +190,25 @@ assert_contains "ship the sitemap" "the continuity note still comes back"
 assert_contains "TIME FOR A FRESH SESSION" "a third compaction asks for a fresh session"
 assert_contains "$GRANDMA_HOME/.handoff/globex__work-billing.md" "the handoff goes where the next launch in that folder looks"
 assert_contains "cd /work/billing && grandma globex billing" "the fresh session is the same sweater and project"
-python3 -c 'import datetime;print("{\"timestamp\":\"%s\",\"type\":\"user\"}" % (datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(hours=25)).isoformat())' > "$TMP/old.jsonl"
+# a message every 10 minutes for 25 hours: a day of real work
+python3 -c '
+import datetime as d
+now = d.datetime.now(d.timezone.utc)
+for m in range(25 * 6, -1, -1):
+    print("{\"timestamp\":\"%s\",\"type\":\"user\"}" % (now - d.timedelta(minutes=10 * m)).isoformat())' > "$TMP/old.jsonl"
 capture env GRANDMA_LAUNCH_DIR=/work/billing bash -c \
   'printf "{\"session_id\":\"ses-none\",\"transcript_path\":\"%s\"}" "$2" | "$1" globex --raw' _ "$REHY" "$TMP/old.jsonl"
-assert_contains "has run 25 hours" "a session open a day is asked to hand over even with no note"
+assert_contains "has run 25 hours" "a session worked in for a day is asked to hand over even with no note"
+# 26 Nov: a session left alone for a day and picked up again was told to move to a new tab ("32 hours")
+# every time it resumed. Time nobody worked in it doesn't count.
+python3 -c '
+import datetime as d
+now = d.datetime.now(d.timezone.utc)
+for h in (32, 31.5, 31, 0.2, 0):
+    print("{\"timestamp\":\"%s\",\"type\":\"user\"}" % (now - d.timedelta(hours=h)).isoformat())' > "$TMP/idle.jsonl"
+capture env GRANDMA_LAUNCH_DIR=/work/billing bash -c \
+  'printf "{\"session_id\":\"ses-idle\",\"transcript_path\":\"%s\"}" "$2" | "$1" globex --raw' _ "$REHY" "$TMP/idle.jsonl"
+assert_not_contains "FRESH SESSION" "a session left idle for a day is not told to move to a new tab"
 rm -f "$GRANDMA_HOME/.compact/ses-long.count"
 
 section "rehydrate - a formatter failure cannot fail the session"
