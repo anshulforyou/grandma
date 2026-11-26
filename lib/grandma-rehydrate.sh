@@ -51,18 +51,32 @@ from datetime import datetime
 cnote, raw, count, tpath, handoff, relaunch, cwd, max_count, max_hours = sys.argv[1:10]
 count, max_count, max_hours = int(count or 0), int(max_count), float(max_hours)
 
-def started(path):
-    # the first timestamp in the transcript is when the session began
+IDLE = 30 * 60  # a pause longer than this is time away, not time worked
+
+
+def worked_hours(path):
+    # Hours someone was working in the session: the gaps between its messages, a long pause counting as
+    # IDLE at most. From the first message by the clock, a session left alone overnight and picked up
+    # again was told to move to a new tab on every resume.
+    total, last = 0.0, None
     try:
         with open(path, encoding="utf-8", errors="ignore") as t:
             for line in t:
-                if '"timestamp"' in line:
+                if '"timestamp"' not in line:
+                    continue
+                try:
                     ts = json.loads(line).get("timestamp")
-                    if ts:
-                        return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
-    except (OSError, ValueError):
+                    at = datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() if ts else None
+                except (ValueError, AttributeError):
+                    continue
+                if at is None:
+                    continue
+                if last is not None and at > last:
+                    total += min(at - last, IDLE)
+                last = at if last is None else max(last, at)
+    except OSError:
         pass
-    return None
+    return total / 3600
 
 limit = 9000
 ctx = ""
@@ -80,10 +94,9 @@ if os.path.isfile(cnote):
         else:
             ctx = ctx[:end] + marker
 
-# A session that has compacted a few times, or run for a day, loses a little more at each
+# A session that has compacted a few times, or been worked in for a day, loses a little more at each
 # compaction. Ask it to hand over to a fresh one at the next clean stopping point.
-begun = started(tpath) if tpath else None
-hours = (time.time() - begun) / 3600 if begun else 0
+hours = worked_hours(tpath) if tpath else 0
 if count >= max_count or hours >= max_hours:
     age = " and ".join(x for x in (f"{count} compactions" if count else "", f"{hours:.0f} hours" if hours >= 1 else "") if x)
     ctx += f"""
